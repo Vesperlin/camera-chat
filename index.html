@@ -98,7 +98,7 @@ async function joinRoom(){
       })
     .subscribe();
 
-  // 首次刷新图片墙
+  // 刷新图片墙
   await listPhotos();
 }
 
@@ -127,7 +127,7 @@ async function sendText(v){
   if(!v) return;
   const { error } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content:v });
   if(error){ alert("发送失败："+error.message); return; }
-  renderMessage("我", v, true);
+  // 不做本地 render，等待 Realtime 回流，避免重复
   $("#text").value="";
 }
 
@@ -174,9 +174,12 @@ $("#shot").onclick = async ()=>{
   const fname = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
   const { error } = await supabase.storage.from(BUCKET).upload(fname, blob, { contentType:"image/jpeg", upsert:false });
   if(error){ alert("上传失败："+error.message); return; }
+
+  // 插入一条“图片链接”消息（不本地 render，等 Realtime 回流）
   const { data:pub } = supabase.storage.from(BUCKET).getPublicUrl(fname);
   await supabase.from("messages").insert({ room_id:roomId, author:"我", content: pub.publicUrl });
-  renderMessage("我", pub.publicUrl, true);
+
+  // 刷新图片墙
   listPhotos();
 };
 </script>

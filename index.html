@@ -14,6 +14,7 @@
   button,input,select{font-size:16px;padding:8px 10px;border:1px solid #ccc;border-radius:8px;background:#fff}
   #photos{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
   #photos a img{display:block;width:100%;height:140px;object-fit:cover;border-radius:6px}
+  button[disabled]{opacity:.6}
 </style>
 
 <div id="left">
@@ -70,65 +71,87 @@ const speak = (text)=>{
   try{ const u=new SpeechSynthesisUtterance(text); u.lang="zh-CN"; speechSynthesis.speak(u);}catch(e){}
 };
 
+/* ----------- 状态 ------------ */
 let roomId = new URL(location.href).searchParams.get("room") || "";
 if(roomId) $("#room").value = roomId;
 
 let mediaStream=null;
 let dbChannel=null;
+let joined=false;
+let currentRoom=null;
+let sending=false;
+
+/* 渲染去重：author|content|created_at */
+const seen = new Set();
+const makeKey = (m)=>`${m.author}|${m.content}|${m.created_at||""}`;
+function tryRender(m){
+  const key = makeKey(m);
+  if(seen.has(key)) return;
+  seen.add(key);
+  const mine = (m.author==="我");
+  // 图片识别
+  if(/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(m.content)){
+    log(`<b>${m.author}</b>：<br><img src="${m.content}" style="max-height:200px">`, mine?"mine":"");
+  }else{
+    log(`<b>${m.author}</b>：${m.content}`, mine?"mine":"");
+  }
+  if(!mine) speak(m.content);
+}
 
 async function joinRoom(){
-  roomId = $("#room").value.trim() || crypto.randomUUID().slice(0,8);
+  const inputVal = $("#room").value.trim();
+  const targetRoom = inputVal || crypto.randomUUID().slice(0,8);
+
+  // 已在同一房间就不重复订阅
+  if(joined && currentRoom === targetRoom) return;
+
+  roomId = targetRoom;
+  currentRoom = roomId;
+  joined = true;
+
   const url=new URL(location.href); url.searchParams.set("room",roomId); history.replaceState(null,"",url);
   log(`<span class="sys">房间：<b>${roomId}</b>（把此链接发给对方即可同房间）</span>`,"sys");
 
-  // 历史消息（最近200条）
-  await loadHistory();
+  // 清空去重记录，避免跨房间保留
+  seen.clear();
 
-  // Realtime 订阅 DB 插入
-  if(dbChannel) await supabase.removeChannel(dbChannel);
-  dbChannel = supabase
-    .channel("db:"+roomId)
-    .on("postgres_changes",
-      { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}` },
-      payload=>{
-        const m = payload.new;
-        const mine = (m.author==="我");
-        renderMessage(m.author, m.content, mine);
-        if(!mine) speak(m.content);
-      })
-    .subscribe();
-
-  // 刷新图片墙
-  await listPhotos();
-}
-
-function renderMessage(author, content, mine=false){
-  if(/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(content)){
-    log(`<b>${author}</b>：<br><img src="${content}" style="max-height:200px">`, mine?"mine":"");
-  }else{
-    log(`<b>${author}</b>：${content}`, mine?"mine":"");
-  }
-}
-
-async function loadHistory(){
-  const { data, error } = await supabase
+  // 历史消息
+  const { data:history } = await supabase
     .from("messages")
     .select("author,content,created_at")
     .eq("room_id", roomId)
     .order("created_at", { ascending:true })
     .limit(200);
-  if(!error && data){
-    $("#log").innerHTML="";
-    for(const m of data){ renderMessage(m.author, m.content, m.author==="我"); }
-  }
+  $("#log").innerHTML="";
+  (history||[]).forEach(m=>tryRender(m));
+
+  // 取消旧订阅并订阅当前房间
+  if(dbChannel) await supabase.removeChannel(dbChannel);
+  dbChannel = supabase
+    .channel("db:"+roomId)
+    .on("postgres_changes",
+      { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}` },
+      payload=> tryRender(payload.new)
+    ).subscribe();
+
+  // 刷新图片墙
+  await listPhotos();
+
+  // UI 禁用“加入”按钮，防止误点再次订阅
+  $("#join").disabled = true;
+  $("#join").textContent = "已加入";
 }
 
 async function sendText(v){
-  if(!v) return;
-  const { error } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content:v });
-  if(error){ alert("发送失败："+error.message); return; }
-  // 不做本地 render，等待 Realtime 回流，避免重复
-  $("#text").value="";
+  if(!v || sending) return;
+  sending = true;
+  try{
+    const { error } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content:v });
+    if(error){ alert("发送失败："+error.message); }
+  } finally {
+    $("#text").value="";
+    sending = false;
+  }
 }
 
 async function listPhotos(){
@@ -145,16 +168,14 @@ async function listPhotos(){
   }
 }
 
+/* ----------- 事件 ------------ */
 $("#join").onclick = joinRoom;
-if(roomId) joinRoom();
+if(roomId){ joinRoom(); }  // URL 带 ?room= 时自动加入
 
 $("#send").onclick = ()=> sendText($("#text").value.trim());
 $("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
 
-$("#sendTpl").onclick = ()=>{
-  const v=$("#tpl").value; if(!v) return;
-  sendText(v);
-};
+$("#sendTpl").onclick = ()=>{ const v=$("#tpl").value; if(v) sendText(v); };
 
 $("#openCam").onclick = async ()=>{
   try{
@@ -175,7 +196,7 @@ $("#shot").onclick = async ()=>{
   const { error } = await supabase.storage.from(BUCKET).upload(fname, blob, { contentType:"image/jpeg", upsert:false });
   if(error){ alert("上传失败："+error.message); return; }
 
-  // 插入一条“图片链接”消息（不本地 render，等 Realtime 回流）
+  // 作为图片消息插入（不本地渲染，交给 Realtime）
   const { data:pub } = supabase.storage.from(BUCKET).getPublicUrl(fname);
   await supabase.from("messages").insert({ room_id:roomId, author:"我", content: pub.publicUrl });
 

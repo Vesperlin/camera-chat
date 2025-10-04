@@ -1,0 +1,182 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>1v1 · 相机上传 + 聊天 + 模板 + 朗读</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;display:flex;height:100vh}
+  #left{flex:1;padding:12px;display:flex;flex-direction:column;gap:8px;border-right:1px solid #e5e5e5}
+  #right{width:360px;max-width:46vw;padding:12px;display:flex;flex-direction:column;gap:8px}
+  video,img{max-width:100%;border:1px solid #ddd;border-radius:8px}
+  #log{flex:1;overflow:auto;border:1px solid #eee;border-radius:8px;padding:8px}
+  .msg{margin:6px 0;padding:6px 8px;border-radius:6px;background:#fafafa;border:1px solid #eee}
+  .mine{background:#eef6ff;border-color:#cfe3ff}
+  .sys{color:#666;font-size:12px}
+  .row{display:flex;gap:8px}
+  button,input,select{font-size:16px;padding:8px 10px;border:1px solid #ccc;border-radius:8px;background:#fff}
+  #photos{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+  #photos a img{display:block;width:100%;height:140px;object-fit:cover;border-radius:6px}
+</style>
+
+<div id="left">
+  <div class="row">
+    <input id="room" placeholder="房间ID（字母数字）">
+    <button id="join">加入/创建房间</button>
+    <label><input type="checkbox" id="bluetoothMode"> 蓝牙模式(朗读对方)</label>
+  </div>
+
+  <video id="preview" autoplay playsinline muted></video>
+  <div class="row">
+    <button id="openCam">打开相机</button>
+    <button id="shot">一键拍照↑并上传</button>
+  </div>
+  <div id="photos"></div>
+</div>
+
+<div id="right">
+  <div id="log"></div>
+  <div class="row">
+    <input id="text" placeholder="发消息…(回车发送)">
+    <button id="send">发送</button>
+  </div>
+  <details>
+    <summary>模板回复（点即发送）</summary>
+    <div class="row"><select id="tpl">
+      <option value="">选择模板</option>
+      <option value="[状态] 我已到达">[状态] 我已到达</option>
+      <option value="[状态] 我已离开">[状态] 我已离开</option>
+      <option value="[系统] 我已拍照并上传">[系统] 我已拍照并上传</option>
+      <option value="[表单] 姓名=；数量=；备注=">[表单] 姓名=；数量=；备注=</option>
+    </select><button id="sendTpl">发送模板</button></div>
+  </details>
+</div>
+
+<script type="module">
+const SUPABASE_URL = "https://rcytjdvqyqbvuyzfcinu.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjeXRqZHZxeXFidnV5emZjaW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1NDc2MzUsImV4cCI6MjA3NTEyMzYzNX0.RyG8f5IL_Yt0UL_rsrP7UILncM9Ek4TMIYq1dr2Zb-U";
+const BUCKET = "photos";
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $ = s => document.querySelector(s);
+const log = (html, cls="")=>{
+  const div=document.createElement("div");
+  div.className="msg "+cls;
+  div.innerHTML=html;
+  $("#log").appendChild(div);
+  $("#log").scrollTop=$("#log").scrollHeight;
+};
+const speak = (text)=>{
+  if(!$("#bluetoothMode").checked) return;
+  try{ const u=new SpeechSynthesisUtterance(text); u.lang="zh-CN"; speechSynthesis.speak(u);}catch(e){}
+};
+
+let roomId = new URL(location.href).searchParams.get("room") || "";
+if(roomId) $("#room").value = roomId;
+
+let mediaStream=null;
+let dbChannel=null;
+
+async function joinRoom(){
+  roomId = $("#room").value.trim() || crypto.randomUUID().slice(0,8);
+  const url=new URL(location.href); url.searchParams.set("room",roomId); history.replaceState(null,"",url);
+  log(`<span class="sys">房间：<b>${roomId}</b>（把此链接发给对方即可同房间）</span>`,"sys");
+
+  // 历史消息（最近200条）
+  await loadHistory();
+
+  // Realtime 订阅 DB 插入
+  if(dbChannel) await supabase.removeChannel(dbChannel);
+  dbChannel = supabase
+    .channel("db:"+roomId)
+    .on("postgres_changes",
+      { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}` },
+      payload=>{
+        const m = payload.new;
+        const mine = (m.author==="我");
+        renderMessage(m.author, m.content, mine);
+        if(!mine) speak(m.content);
+      })
+    .subscribe();
+
+  // 首次刷新图片墙
+  await listPhotos();
+}
+
+function renderMessage(author, content, mine=false){
+  if(/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(content)){
+    log(`<b>${author}</b>：<br><img src="${content}" style="max-height:200px">`, mine?"mine":"");
+  }else{
+    log(`<b>${author}</b>：${content}`, mine?"mine":"");
+  }
+}
+
+async function loadHistory(){
+  const { data, error } = await supabase
+    .from("messages")
+    .select("author,content,created_at")
+    .eq("room_id", roomId)
+    .order("created_at", { ascending:true })
+    .limit(200);
+  if(!error && data){
+    $("#log").innerHTML="";
+    for(const m of data){ renderMessage(m.author, m.content, m.author==="我"); }
+  }
+}
+
+async function sendText(v){
+  if(!v) return;
+  const { error } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content:v });
+  if(error){ alert("发送失败："+error.message); return; }
+  renderMessage("我", v, true);
+  $("#text").value="";
+}
+
+async function listPhotos(){
+  const { data, error } = await supabase.storage.from(BUCKET).list(roomId, { limit:100, sortBy:{ column:"created_at", order:"desc" }});
+  if(error) return;
+  const wrap = $("#photos"); wrap.innerHTML="";
+  for(const obj of data){
+    const { data:pub } = supabase.storage.from(BUCKET).getPublicUrl(`${roomId}/${obj.name}`);
+    const a = document.createElement("a");
+    a.href = pub.publicUrl; a.target="_blank";
+    const img = document.createElement("img"); img.src = pub.publicUrl;
+    a.appendChild(img);
+    wrap.appendChild(a);
+  }
+}
+
+$("#join").onclick = joinRoom;
+if(roomId) joinRoom();
+
+$("#send").onclick = ()=> sendText($("#text").value.trim());
+$("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
+
+$("#sendTpl").onclick = ()=>{
+  const v=$("#tpl").value; if(!v) return;
+  sendText(v);
+};
+
+$("#openCam").onclick = async ()=>{
+  try{
+    mediaStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
+    $("#preview").srcObject = mediaStream;
+  }catch(e){ alert("相机权限失败："+e.message); }
+};
+
+$("#shot").onclick = async ()=>{
+  if(!mediaStream) return alert("请先打开相机");
+  const video = $("#preview");
+  const c = document.createElement("canvas");
+  const w = video.videoWidth || 1280, h = video.videoHeight || 720;
+  c.width=w; c.height=h;
+  c.getContext("2d").drawImage(video,0,0,w,h);
+  const blob = await new Promise(r=>c.toBlob(r,"image/jpeg",0.9));
+  const fname = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+  const { error } = await supabase.storage.from(BUCKET).upload(fname, blob, { contentType:"image/jpeg", upsert:false });
+  if(error){ alert("上传失败："+error.message); return; }
+  const { data:pub } = supabase.storage.from(BUCKET).getPublicUrl(fname);
+  await supabase.from("messages").insert({ room_id:roomId, author:"我", content: pub.publicUrl });
+  renderMessage("我", pub.publicUrl, true);
+  listPhotos();
+};
+</script>

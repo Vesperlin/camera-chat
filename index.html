@@ -1,126 +1,168 @@
 <!doctype html>
 <html lang="zh-CN">
+<head>
 <meta charset="utf-8" />
-<meta name="viewport"
-  content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
-<title>相机上传 · 聊天</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no" />
+<title>1v1 · 相机上传 + 聊天（移动端优化）</title>
 <style>
   :root{
-    --bg:#0b1220;            /* 背景深色 */
-    --card:#0f172a;          /* 卡片深色 */
-    --muted:#8ea2c9;
-    --brand:#5b7cfa;         /* 主色（蓝紫） */
-    --brand-2:#8b5cf6;
-    --line:#20304f;
-    --mine:#1e293b;
-    --safe:env(safe-area-inset-bottom);
+    --bg:#f5f6f8;
+    --card:#ffffff;
+    --border:#e9edf2;
+    --text:#0b1220;
+    --text-2:#6b7280;
+    --primary:#3b82f6;
+    --primary-2:#1d4ed8;
+    --mine:#eef6ff;
+    --mine-b:#cfe3ff;
+    --radius:14px;
   }
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  *{box-sizing:border-box}
   html,body{height:100%}
   body{
     margin:0;
-    background: radial-gradient(1200px 600px at 50% -100px, #17213a 0, transparent 60%) , var(--bg);
-    color:#e5edff;
-    font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--text);
   }
 
-  /* 布局 */
-  .wrap{height:100%;display:flex;flex-direction:column}
+  /* 顶栏 */
   header{
-    position:sticky;top:0;z-index:10;
-    backdrop-filter:saturate(140%) blur(8px);
-    background:linear-gradient(180deg,rgba(14,23,42,.9),rgba(14,23,42,.6) 60%,transparent);
-    border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:10;
+    background:var(--card);
+    border-bottom:1px solid var(--border);
+    padding:10px env(safe-area-inset-right) 10px env(safe-area-inset-left);
   }
-  .topbar{display:flex;gap:10px;align-items:center;padding:10px 12px}
-  .topbar input,.topbar select,.topbar button,.composer input,.composer button{
-    font-size:16px;border:1px solid #283956;background:#0d1426;color:#e6eeff;
-    border-radius:12px;padding:10px 12px;outline:none;
+  .row{display:flex; gap:10px; align-items:center}
+  input,button,select{
+    font-size:16px; /* 防止 iOS 聚焦自动放大 */
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:#fff;
   }
-  .btn{background:linear-gradient(135deg,var(--brand),var(--brand-2));border:none;color:#fff;font-weight:600}
-  .switch{display:flex;align-items:center;gap:8px;color:#c6d4ff}
-  .mode-tip{color:#93a5c8;font-size:12px}
-
-  /* 消息区 */
-  #log{flex:1;overflow:auto;padding:12px;scroll-behavior:smooth}
-  .msg{max-width:86%;padding:10px 12px;margin:10px 0; border:1px solid #1c2a45;border-radius:14px;
-       background:linear-gradient(180deg,#0e1730,#0b1427); box-shadow:0 6px 18px rgba(0,0,0,.25)}
-  .mine{margin-left:auto;background:linear-gradient(180deg,#15233c,#0e1b31)}
-  .author{display:block;color:#93a4c7;font-size:12px;margin-bottom:6px}
-  .bubble{white-space:pre-wrap;word-break:break-word}
-  .thumb{display:block;width:100%;max-height:180px;object-fit:cover;border-radius:10px;border:1px solid #243455}
-  .enlarge .thumb{max-height:340px}
-  .no-enlarge .thumb{max-height:120px}
-
-  /* 底部工具条（固定） */
-  .dock{
-    position:sticky;bottom:0;z-index:10;border-top:1px solid var(--line);
-    background:linear-gradient(0deg,rgba(10,16,30,.95),rgba(10,16,30,.85));
-    padding:10px 10px calc(10px + var(--safe));
-    display:flex;flex-direction:column;gap:10px;
+  input{flex:1; min-width:0}
+  button.primary{
+    background:var(--primary); color:#fff; border-color:transparent;
   }
-  .toolrow{display:flex;gap:10px}
-  .toolrow button{flex:1;padding:12px;border-radius:12px}
-  .toolrow .danger{background:#2a1b21;border-color:#432237;color:#ffb4c4}
-  .composer{display:flex;gap:10px;align-items:center}
-  .composer input{flex:1;background:#0c1428;border-color:#223150}
+  button.primary:active{background:var(--primary-2)}
+  label{color:var(--text-2); display:flex; align-items:center; gap:6px}
 
-  /* 全屏图片查看 */
-  #viewer{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:999}
-  #viewer img{max-width:100vw;max-height:100vh; border-radius:8px; touch-action:manipulation}
-  #viewer.show{display:flex}
+  /* 内容区 */
+  #content{height:calc(100dvh - 56px - 82px); /* 顶栏+工具栏 */ padding:10px; overflow:auto;}
+  #log{display:flex; flex-direction:column; gap:10px}
+  .msg{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:10px 12px;
+  }
+  .msg.mine{background:var(--mine); border-color:var(--mine-b)}
+  .msg .author{font-weight:600; margin-right:6px}
+  .msg .time{color:var(--text-2); font-size:12px; margin-left:8px}
 
-  /* 防止 iOS 键盘顶起后遮挡输入条 */
-  @supports (height:100dvh){
-    .wrap{height:100dvh}
+  /* 图片缩略图 - 克制 */
+  .msg img.thumb{
+    display:block;
+    width:100%;
+    max-height:220px;
+    object-fit:cover;
+    border-radius:10px;
+    cursor:zoom-in;
   }
 
-  /* 小屏优化 */
-  @media (max-width:390px){
-    .topbar input{width:38%}
+  /* 底部工具条 */
+  #toolbar{
+    position:sticky; bottom:0; z-index:10;
+    background:var(--card);
+    border-top:1px solid var(--border);
+    padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+    display:flex; flex-direction:column; gap:8px;
   }
+  #toolRow{display:flex; gap:8px}
+  #sendRow{display:flex; gap:8px}
+  #text{flex:1}
+
+  /* 全屏图片查看器 */
+  #viewer{
+    position:fixed; inset:0;
+    background:rgba(0,0,0,.92);
+    display:none; z-index:9999; color:#fff;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  #viewer.show{display:block}
+  #viewerTop{
+    position:absolute; left:0; right:0; top:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px;
+    -webkit-user-select:none; user-select:none;
+  }
+  #viewerClose{
+    font-size:22px; line-height:22px;
+    color:#fff;background:rgba(255,255,255,.16);
+    border:0;border-radius:10px;padding:8px 12px;
+  }
+  #viewerCount{opacity:.85;font-size:14px}
+  #viewerStage{ position:absolute; inset:0; top:50px; overflow:hidden; touch-action:none; }
+  #viewerImg{
+    position:absolute; left:50%; top:50%;
+    transform: translate(-50%,-50%) scale(1);
+    transform-origin:center center;
+    will-change:transform;
+    max-width:none; max-height:none;
+  }
+  .viewer-nav{
+    position:absolute; top:50%; transform:translateY(-50%);
+    border:0; border-radius:12px; width:44px; height:44px;
+    background:rgba(255,255,255,.18); color:#fff; font-size:22px;
+  }
+  #viewerPrev{ left:12px }
+  #viewerNext{ right:12px }
 </style>
+</head>
+<body>
 
-<div class="wrap">
-  <header>
-    <div class="topbar">
-      <input id="room" placeholder="房间ID（字母数字）" inputmode="latin" autocomplete="off">
-      <button id="join" class="btn">加入/创建</button>
-      <label class="switch"><input type="checkbox" id="bluetoothMode"> 朗读对方</label>
-    </div>
-    <div class="topbar" style="padding-top:0;">
-      <label style="display:flex;align-items:center;gap:10px;">
-        图片模式：
-        <select id="imgMode">
-          <option value="others">只放大对方</option>
-          <option value="all">全部放大</option>
-          <option value="off">不放大</option>
-        </select>
-      </label>
-      <span class="mode-tip">（可随时切换）</span>
-    </div>
-  </header>
+<header>
+  <div class="row" style="gap:8px">
+    <input id="room" placeholder="房间ID（字母数字）">
+    <button id="join" class="primary">加入/创建</button>
+    <label><input type="checkbox" id="bluetoothMode"> 朗读对方</label>
+  </div>
+</header>
 
-  <main id="log" aria-live="polite"></main>
+<main id="content">
+  <div id="log"></div>
+</main>
 
-  <footer class="dock">
-    <div class="toolrow">
-      <button id="openCam">开启相机</button>
-      <button id="shot" class="btn">拍照上传</button>
-      <button id="closeCam" class="danger">关闭相机</button>
-    </div>
-    <div class="composer">
-      <input id="text" placeholder="发消息…（回车发送）" enterkeyhint="send" />
-      <button id="send" class="btn">发送</button>
-    </div>
-    <video id="preview" autoplay playsinline muted style="display:none;width:100%;border-radius:12px;border:1px solid #223150"></video>
-  </footer>
+<!-- 底部工具条 -->
+<div id="toolbar">
+  <div id="toolRow">
+    <button id="openCam">开启相机</button>
+    <button id="shot" class="primary" style="flex:1">拍照上传</button>
+    <button id="closeCam" style="background:#fee2e2;border-color:#fecaca;color:#b91c1c">关闭相机</button>
+  </div>
+  <div id="sendRow">
+    <input id="text" placeholder="发消息…（回车发送）">
+    <button id="send" class="primary">发送</button>
+  </div>
+  <!-- 隐藏的视频承载相机流（不占位） -->
+  <video id="preview" autoplay playsinline muted style="width:1px;height:1px;opacity:0;position:absolute;left:-9999px"></video>
 </div>
 
-<!-- 全屏图片查看 -->
-<div id="viewer"><img id="viewerImg" alt="查看图片"></div>
+<!-- 全屏图片查看器 -->
+<div id="viewer" aria-hidden="true">
+  <div id="viewerTop">
+    <button id="viewerClose">关闭</button>
+    <span id="viewerCount"></span>
+  </div>
+  <div id="viewerStage"><img id="viewerImg" alt=""></div>
+  <button id="viewerPrev" class="viewer-nav" aria-label="上一张">‹</button>
+  <button id="viewerNext" class="viewer-nav" aria-label="下一张">›</button>
+</div>
 
 <script type="module">
+/* ====== Supabase 基本配置 ====== */
 const SUPABASE_URL = "https://rcytjdvqyqbvuyzfcinu.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjeXRqZHZxeXFidnV5emZjaW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1NDc2MzUsImV4cCI6MjA3NTEyMzYzNX0.RyG8f5IL_Yt0UL_rsrP7UILncM9Ek4TMIYq1dr2Zb-U";
 const BUCKET = "photos";
@@ -128,155 +170,221 @@ const BUCKET = "photos";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+/* ====== 小工具 ====== */
 const $ = s => document.querySelector(s);
-const logEl = $("#log");
+const logWrap = $("#log");
+const seenIds = new Set(); // 防重复渲染
+const allImageUrls = [];   // 给查看器用
 
-/* ====== 基础 ====== */
-const renderSet = new Set(); // 已渲染消息id，避免重复
-let roomId = new URL(location.href).searchParams.get("room") || "";
-if(roomId) $("#room").value = roomId;
-
-let mediaStream=null;
-let dbChannel=null;
-let imgMode = localStorage.getItem("imgMode") || "others";
-$("#imgMode").value = imgMode;
-$("#imgMode").onchange = (e)=>{ imgMode = e.target.value; localStorage.setItem("imgMode", imgMode); applyImgMode(); };
-
-function applyImgMode(){
-  logEl.classList.remove("enlarge","no-enlarge");
-  if(imgMode==="all") logEl.classList.add("enlarge");
-  else if(imgMode==="off") logEl.classList.add("no-enlarge");
-  // others 模式由每条消息的 mine/对方 决定（见 renderMessage）
-}
-applyImgMode();
+function fmtTime(s){ try{ return new Date(s).toLocaleTimeString(); }catch{ return "" } }
 
 function speak(text){
   if(!$("#bluetoothMode").checked) return;
-  try{ const u=new SpeechSynthesisUtterance(text); u.lang="zh-CN"; speechSynthesis.speak(u);}catch(e){}
+  try{ const u = new SpeechSynthesisUtterance(text); u.lang="zh-CN"; speechSynthesis.speak(u);}catch{}
 }
 
-function scrollToBottom(){
-  requestAnimationFrame(()=>{ logEl.scrollTop = logEl.scrollHeight; });
-}
-
-/* ====== 渲染 ====== */
-function renderMessage(row){
-  if(renderSet.has(row.id)) return;
-  renderSet.add(row.id);
-
-  const mine = row.author === "我";
-  const box = document.createElement("div");
-  box.className = "msg" + (mine ? " mine" : "");
-
-  // 图片 or 文本
-  const isImg = /^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(row.content);
-  const author = document.createElement("span");
-  author.className="author";
-  author.textContent = mine ? "我" : (row.author||"对方");
-  box.appendChild(author);
-
-  if(isImg){
-    const img = document.createElement("img");
-    img.className = "thumb";
-    img.src = row.content;
-    img.alt = "图片";
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.addEventListener("click", ()=> openViewer(row.content));
-    // others 模式：仅对方消息加大
-    if(imgMode==="others" && !mine) box.classList.add("enlarge");
-    box.appendChild(img);
+function appendMsg({id,author,content,created_at}){
+  if(seenIds.has(id)) return;
+  seenIds.add(id);
+  const mine = author==="我";
+  const div = document.createElement("div");
+  div.className = "msg" + (mine?" mine":"");
+  const head = `<span class="author">${author}</span><span class="time">${fmtTime(created_at)}</span>`;
+  if(/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(content)){
+    div.innerHTML = `${head}<br><img class="thumb" src="${content}" alt="">`;
+    logWrap.appendChild(div);
+    const img = div.querySelector("img");
+    registerThumb(img, content);
   }else{
-    const bubble = document.createElement("div");
-    bubble.className = "bubble";
-    bubble.textContent = row.content;
-    box.appendChild(bubble);
+    div.innerHTML = `${head}<span class="text">：${content}</span>`;
+    logWrap.appendChild(div);
   }
-
-  logEl.appendChild(box);
-  scrollToBottom();
-  if(!mine) speak(row.content);
+  $("#content").scrollTop = $("#content").scrollHeight;
+  if(!mine) speak(content);
 }
 
-function openViewer(src){
-  $("#viewerImg").src = src;
-  $("#viewer").classList.add("show");
-}
-$("#viewer").addEventListener("click", ()=> $("#viewer").classList.remove("show"));
+/* ====== 房间与实时 ====== */
+let roomId = new URL(location.href).searchParams.get("room") || "";
+if(roomId) $("#room").value = roomId;
+let dbChannel=null;
 
-/* ====== 进房 ====== */
-async function joinRoom(){
-  roomId = $("#room").value.trim() || crypto.randomUUID().slice(0,8);
-  const url=new URL(location.href); url.searchParams.set("room",roomId); history.replaceState(null,"",url);
-
-  // 历史
-  renderSet.clear();
-  logEl.innerHTML="";
+async function loadHistory(){
   const { data, error } = await supabase
     .from("messages")
-    .select("id,author,content,created_at")
+    .select("*")
     .eq("room_id", roomId)
     .order("created_at", { ascending:true })
-    .limit(300);
-  if(!error && data) data.forEach(renderMessage);
+    .limit(200);
+  logWrap.innerHTML = "";
+  seenIds.clear(); allImageUrls.length=0;
+  if(!error && data){
+    data.forEach(appendMsg);
+  }
+}
 
-  // 订阅
+async function joinRoom(){
+  roomId = $("#room").value.trim() || crypto.randomUUID().slice(0,8);
+  const url = new URL(location.href); url.searchParams.set("room",roomId); history.replaceState(null,"",url);
+
+  await loadHistory();
+
   if(dbChannel) await supabase.removeChannel(dbChannel);
-  dbChannel = supabase.channel("room:"+roomId)
-    .on("postgres_changes", { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}` },
-      payload => renderMessage(payload.new))
-    .subscribe((status)=>{
-      // 可在这里提示连接状态
-    });
+  dbChannel = supabase
+    .channel("db:"+roomId)
+    .on("postgres_changes",
+      { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}` },
+      payload => appendMsg(payload.new)
+    )
+    .subscribe((status)=>{/* 可观察状态 */});
 }
 $("#join").onclick = joinRoom;
 if(roomId) joinRoom();
 
-/* ====== 发送文字 ====== */
+/* ====== 发送文本（只插入，不本地立即渲染，避免与 Realtime 重复） ====== */
 async function sendText(){
   const v = $("#text").value.trim();
-  if(!v) return;
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({ room_id:roomId, author:"我", content:v })
-    .select("id,author,content,created_at")
-    .single();
+  if(!v || !roomId) return;
+  const { error } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content:v });
   if(error){ alert("发送失败："+error.message); return; }
-  renderMessage(data);  // 乐观渲染（有 id，不怕重复）
   $("#text").value="";
 }
 $("#send").onclick = sendText;
-$("#text").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); sendText(); }});
+$("#text").addEventListener("keydown", e => { if(e.key==="Enter") sendText(); });
 
-/* ====== 相机 ====== */
+/* ====== 相机与拍照上传 ====== */
+let mediaStream=null;
+const video = $("#preview");
+
 $("#openCam").onclick = async ()=>{
+  if(mediaStream) return;
   try{
     mediaStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
-    $("#preview").style.display="block";
-    $("#preview").srcObject = mediaStream;
+    video.srcObject = mediaStream;
   }catch(e){ alert("相机权限失败："+e.message); }
 };
 $("#closeCam").onclick = ()=>{
-  if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
-  $("#preview").style.display="none";
+  if(!mediaStream) return;
+  mediaStream.getTracks().forEach(t=>t.stop());
+  mediaStream=null; video.srcObject=null;
 };
 
 $("#shot").onclick = async ()=>{
+  if(!roomId) return alert("请先加入房间");
   if(!mediaStream) return alert("请先开启相机");
-  const video = $("#preview");
+
   const c = document.createElement("canvas");
   const w = video.videoWidth || 1280, h = video.videoHeight || 720;
   c.width=w; c.height=h;
   c.getContext("2d").drawImage(video,0,0,w,h);
   const blob = await new Promise(r=>c.toBlob(r,"image/jpeg",0.9));
   const fname = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
-  const { error:upErr } = await supabase.storage.from(BUCKET).upload(fname, blob, { contentType:"image/jpeg", upsert:false });
+
+  const { error:upErr } = await supabase.storage.from(BUCKET)
+    .upload(fname, blob, { contentType:"image/jpeg", upsert:false });
   if(upErr){ alert("上传失败："+upErr.message); return; }
+
   const { data:pub } = supabase.storage.from(BUCKET).getPublicUrl(fname);
-  const { data, error } = await supabase
-    .from("messages").insert({ room_id:roomId, author:"我", content: pub.publicUrl })
-    .select("id,author,content,created_at").single();
-  if(!error) renderMessage(data);
+  // 只发消息，渲染交给 Realtime
+  await supabase.from("messages").insert({ room_id:roomId, author:"我", content:pub.publicUrl });
 };
+
+/* ====== 全屏图片查看器（缩放/拖拽/左右切换） ====== */
+const viewer = $("#viewer");
+const viewerImg = $("#viewerImg");
+const viewerCount = $("#viewerCount");
+const btnPrev = $("#viewerPrev");
+const btnNext = $("#viewerNext");
+$("#viewerClose").onclick = ()=> viewer.classList.remove('show');
+
+let current = 0;
+let scale = 1, baseScale = 1;
+let startMid = null, startDist = 0;
+let tx = 0, ty = 0;
+let startTx = 0, startTy = 0;
+let touchStartX = 0;
+
+function registerThumb(imgEl, url){
+  let idx = allImageUrls.indexOf(url);
+  if(idx===-1){ allImageUrls.push(url); idx = allImageUrls.length-1; }
+  imgEl.dataset.index = idx;
+  imgEl.addEventListener('click', ()=> openViewer(idx));
+}
+function openViewer(index){
+  current = index;
+  updateImage();
+  resetTransform();
+  viewer.classList.add('show');
+}
+function updateImage(){
+  const total = allImageUrls.length;
+  viewerImg.src = allImageUrls[current];
+  viewerCount.textContent = `${current+1} / ${total}`;
+  btnPrev.style.display = (current>0)?'block':'none';
+  btnNext.style.display = (current<total-1)?'block':'none';
+}
+btnPrev.onclick = ()=>{ if(current>0){ current--; updateImage(); resetTransform(); } };
+btnNext.onclick = ()=>{ if(current<allImageUrls.length-1){ current++; updateImage(); resetTransform(); } };
+
+let lastTap = 0;
+const stage = document.getElementById('viewerStage');
+
+stage.addEventListener('click', ()=>{
+  const now = Date.now();
+  if(now-lastTap<300){
+    scale = (scale>1)?1:2.2;
+    tx = ty = 0;
+    applyTransform();
+  }
+  lastTap = now;
+});
+stage.addEventListener('touchstart', (e)=>{
+  if(e.touches.length===1){
+    touchStartX = e.touches[0].clientX;
+    startTx = tx; startTy = ty;
+  }else if(e.touches.length===2){
+    const p1=e.touches[0], p2=e.touches[1];
+    startDist = dist(p1,p2);
+    startMid = mid(p1,p2);
+    baseScale = scale;
+  }
+},{passive:false});
+stage.addEventListener('touchmove', (e)=>{
+  if(e.touches.length===1 && scale>1){
+    const p=e.touches[0];
+    tx = startTx + (p.clientX - touchStartX);
+    ty = startTy + (p.clientY - (startMid?.clientY ?? p.clientY));
+    clampPan(); applyTransform(); e.preventDefault();
+  }else if(e.touches.length===2){
+    const p1=e.touches[0], p2=e.touches[1];
+    const factor = dist(p1,p2)/Math.max(1,startDist);
+    scale = Math.min(4, Math.max(1, baseScale*factor));
+    applyTransform(); e.preventDefault();
+  }
+},{passive:false});
+stage.addEventListener('touchend', (e)=>{
+  if(e.touches.length===0 && !startMid && scale===1){
+    const endX = (e.changedTouches[0]||{}).clientX ?? 0;
+    const delta = endX - touchStartX;
+    if(Math.abs(delta)>60){
+      if(delta<0 && current<allImageUrls.length-1){ current++; updateImage(); }
+      else if(delta>0 && current>0){ current--; updateImage(); }
+    }
+  }
+  if(scale<1){ scale=1; tx=ty=0; applyTransform(); }
+  if(scale>4){ scale=4; applyTransform(); }
+  startMid=null;
+});
+function applyTransform(){
+  viewerImg.style.transform = `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(${scale})`;
+}
+function resetTransform(){ scale=1; tx=ty=0; applyTransform(); }
+function clampPan(){
+  const limit = 200*(scale-1);
+  tx = Math.max(-limit, Math.min(limit, tx));
+  ty = Math.max(-limit, Math.min(limit, ty));
+}
+function dist(a,b){ const dx=a.clientX-b.clientX, dy=a.clientY-b.clientY; return Math.hypot(dx,dy); }
+function mid(a,b){ return {clientX:(a.clientX+b.clientX)/2, clientY:(a.clientY+b.clientY)/2}; }
 </script>
+</body>
 </html>

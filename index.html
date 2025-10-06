@@ -1,129 +1,154 @@
 <!doctype html>
-<html lang="zh-CN">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#ffffff">
-<title>1v1 · 相机上传 + 聊天</title>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>1v1 · 相机上传 + 聊天（移动优化）</title>
 <style>
   :root{
     --bg:#f6f7fb;
-    --card:#ffffff;
-    --text:#101828;
-    --muted:#667085;
-    --brand:#6b7bff;
-    --brand-weak:#eef1ff;
-    --border:#e7e7ef;
-    --shadow:0 8px 24px rgba(16,24,40,.06);
-    --radius:14px;
+    --card:#fff;
+    --primary:#4c6fff;
+    --primary-weak:#e8ecff;
+    --text:#111;
+    --sub:#666;
+    --border:#e9e9ef;
     --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{
-    margin:0;background:var(--bg);color:var(--text);
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    -webkit-tap-highlight-color: transparent;
     font:16px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-    display:flex;flex-direction:column
+    display:flex;flex-direction:column;
   }
 
-  /* 顶栏 */
-  header{
-    position:sticky;top:0;z-index:10;background:var(--bg);
-    padding:10px 16px;border-bottom:1px solid var(--border);
-    display:flex;gap:10px;align-items:center;
+  /* 顶部条 */
+  .topbar{
+    position:sticky;top:0;z-index:20;
+    background:var(--card);
+    border-bottom:1px solid var(--border);
+    padding:10px 12px;
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;
   }
-  header .room{
-    flex:1;display:flex;gap:8px;align-items:center
+  .topbar .row{display:flex;gap:8px;align-items:center;flex:1;min-width:240px}
+  input,button,select{
+    font-size:16px; /* 关键：防止 iOS Safari 自动放大 */
+    border:1px solid var(--border);
+    background:#fff;border-radius:12px;padding:10px 12px;
   }
-  input,select,button{
-    font:16px/1.2 inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#fff;
+  input{flex:1;min-width:0}
+  button.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+  label{color:var(--sub);display:flex;gap:6px;align-items:center}
+
+  /* 图片模式切换 */
+  .modebar{
+    padding:8px 12px;color:#4b6;display:flex;gap:8px;align-items:center;flex-wrap:wrap
   }
-  button{cursor:pointer}
-  .primary{background:var(--brand);color:#fff;border-color:var(--brand)}
-  .ghost{background:var(--brand-weak);border-color:transparent;color:#2d31a6}
-  label{display:inline-flex;gap:6px;align-items:center;color:var(--muted);font-size:14px}
+  .modebar small{color:#999}
 
-  /* 主区 */
-  #chat{
-    flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:12px 12px 92px; /* 预留底栏高度 */
+  /* 内容区（消息列表） */
+  #log{
+    flex:1;overflow:auto;
+    padding:12px;display:flex;flex-direction:column;gap:10px;
   }
-
-  /* 消息卡片 */
-  #log{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px}
-  .msg{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow)}
-  .mine{background:#f2f6ff;border-color:#dfe7ff}
-  .sys{color:var(--muted);background:transparent;border:none;box-shadow:none;padding:0;margin:4px 0;text-align:center;font-size:12px}
-
-  .msg b{font-weight:600}
-  .msg time{color:var(--muted);font-size:12px;margin-left:6px}
-
-  .msg img{
-    display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--border);
-    object-fit:cover
+  .msg{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:14px;padding:10px 12px;
+    max-width: 88%;
+    box-shadow:0 1px 0 rgba(0,0,0,.02);
   }
+  .mine{align-self:flex-end;background:var(--primary-weak);border-color:#dae2ff}
+  .meta{font-size:12px;color:#999;margin-bottom:4px}
+  .msg img{display:block;border-radius:10px;width:100%;height:auto}
 
-  /* 预览视频 */
-  #previewCard{display:none}
-  #preview{width:100%;border-radius:12px;border:1px solid var(--border)}
+  /* 图片大小策略 */
+  /* 基础：消息内图片在手机上默认适中（宽度 68% 容器宽） */
+  .msg .pic{width:68vw;max-width:460px}
+  /* 放大全部 */
+  .enlarge-all .msg .pic{width:88vw;max-width:620px}
+  /* 仅放大“对方” */
+  .enlarge-others .msg:not(.mine) .pic{width:88vw;max-width:620px}
+  /* 关闭放大（都较小） */
+  .enlarge-off .msg .pic{width:52vw;max-width:360px}
 
-  /* 底部固定操作栏 */
-  #dock{
-    position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--card);border-top:1px solid var(--border);
+  /* 底部工具栏（始终可用，避让 Home 条） */
+  .toolbar{
+    position:sticky;bottom:0;z-index:30;
     padding:10px 12px calc(10px + var(--safe-bottom));
-    display:grid;grid-template-columns: auto 1fr auto;gap:8px;align-items:center;
-    box-shadow:0 -8px 24px rgba(16,24,40,.05)
+    background:rgba(255,255,255,.86);
+    backdrop-filter:saturate(160%) blur(12px);
+    border-top:1px solid var(--border);
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;
   }
-  #text{width:100%}
-  .iconbtn{padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#fff}
-  .danger{background:#ffeaea;border-color:#ffd6d6;color:#b42318}
+  .tool-top{display:flex;gap:8px;width:100%}
+  .tool-bottom{display:flex;gap:8px;width:100%}
 
-  /* 顶部工具条（图片显示模式） */
-  #bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .tool-top input[type=text]{flex:1}
+  .btn-ghost{background:#fff}
 
-  /* 小屏优化 */
-  @media (min-width:960px){
-    body{max-width:900px;margin:0 auto}
+  /* 小预览条（相机开启时） */
+  #camBar{
+    width:100%;display:none;align-items:center;gap:8px;
+    background:#fff;border:1px dashed var(--border);border-radius:10px;padding:8px;
+  }
+  #preview{display:block;width:120px;height:68px;border-radius:8px;object-fit:cover;background:#000}
+
+  /* 小屏优化：按钮尺寸更易点 */
+  @media (max-width:390px){
+    button,select{padding:10px}
   }
 </style>
+</head>
+<body class="enlarge-others"><!-- 默认：只放大对方 -->
 
-<header>
-  <div class="room">
-    <input id="room" placeholder="房间ID（字母数字）" autocomplete="off" />
-    <button id="join" class="primary">加入/创建</button>
+  <div class="topbar">
+    <div class="row" style="flex:1">
+      <input id="room" placeholder="房间ID（字母数字）">
+      <button id="join" class="primary">加入/创建</button>
+    </div>
     <label><input type="checkbox" id="bluetoothMode"> 朗读对方</label>
   </div>
-</header>
 
-<section id="chat">
-  <!-- 顶部工具条 -->
-  <div id="bar">
-    <select id="imgMode">
-      <option value="peer">图片模式：只放大对方</option>
-      <option value="none">图片模式：关闭放大</option>
-      <option value="all">图片模式：全部放大</option>
-    </select>
-    <span style="color:var(--muted);font-size:13px">（可随时切换）</span>
+  <div class="modebar">
+    <label>图片模式：
+      <select id="imgMode">
+        <option value="enlarge-others" selected>只放大对方</option>
+        <option value="enlarge-all">全部放大</option>
+        <option value="enlarge-off">关闭放大</option>
+      </select>
+    </label>
+    <small>（可随时切换）</small>
   </div>
 
-  <!-- 相机预览卡片（可开/关） -->
-  <div id="previewCard" class="msg">
-    <b>相机预览</b>
-    <video id="preview" autoplay playsinline muted></video>
-  </div>
-
-  <!-- 聊天记录 -->
   <div id="log"></div>
-</section>
 
-<!-- 底部 Dock -->
-<div id="dock">
-  <button id="openCam" class="iconbtn">开启相机</button>
-  <input id="text" placeholder="发消息…(回车发送)" autocomplete="off">
-  <button id="send" class="primary">发送</button>
-  <button id="shot" class="ghost">拍照上传</button>
-  <button id="closeCam" class="iconbtn danger">关闭相机</button>
-</div>
+  <div class="toolbar">
+    <!-- 相机状态条 -->
+    <div id="camBar">
+      <video id="preview" autoplay playsinline muted></video>
+      <div style="flex:1;color:#666;font-size:13px">相机已开启，可随时拍照上传</div>
+    </div>
+
+    <!-- 顶行：相机控制 -->
+    <div class="tool-top">
+      <button id="openCam" class="btn-ghost">开启相机</button>
+      <button id="shot" class="primary" style="flex:1">拍照上传</button>
+      <button id="closeCam" class="btn-ghost" style="color:#d33;border-color:#ffd9d9;background:#fff5f5">关闭相机</button>
+    </div>
+
+    <!-- 底行：发送消息 -->
+    <div class="tool-bottom">
+      <input id="text" type="text" placeholder="发消息…（回车发送）" />
+      <button id="send" class="primary">发送</button>
+    </div>
+  </div>
 
 <script type="module">
-/* ====== 基本配置 ====== */
 const SUPABASE_URL = "https://rcytjdvqyqbvuyzfcinu.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjeXRqZHZxeXFidnV5emZjaW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1NDc2MzUsImV4cCI6MjA3NTEyMzYzNX0.RyG8f5IL_Yt0UL_rsrP7UILncM9Ek4TMIYq1dr2Zb-U";
 const BUCKET = "photos";
@@ -131,169 +156,126 @@ const BUCKET = "photos";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ====== 工具 ====== */
 const $ = s => document.querySelector(s);
-const byId = id => document.getElementById(id);
 
-function nowStr(){ return new Date().toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'}) }
-function toSmallUrl(url, mode, isMine){
-  // 根据模式返回图片最大宽度（用 CSS 控制比例）
-  // none: 160px  peer: 对方 320px/自己160px  all: 360px
-  let max = 160;
-  if(mode === 'all') max = 360;
-  if(mode === 'peer') max = isMine ? 160 : 320;
-  return { url, max };
-}
-function scrollToBottom(){ const el=$("#log"); el.scrollTop = el.scrollHeight; }
-
-/* 朗读 */
-function speak(text){
-  if(!$("#bluetoothMode").checked) return;
-  try{ const u=new SpeechSynthesisUtterance(text); u.lang="zh-CN"; speechSynthesis.speak(u);}catch(e){}
-}
-
-/* 记录 & 渲染 */
-function renderMessage({author, content, created_at}, mine=false){
+const logBox = $("#log");
+function addMsg({author, content, mine=false}){
   const wrap = document.createElement("div");
   wrap.className = "msg" + (mine ? " mine" : "");
-  const t = document.createElement("div");
+  const isImg = /^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(content);
+  wrap.innerHTML = `
+    <div class="meta">${mine ? "我" : author || "Ta"}</div>
+    ${isImg ? `<img class="pic" src="${content}" alt="photo">` : `<div>${escapeHtml(content)}</div>`}
+  `;
+  logBox.appendChild(wrap);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 
-  if(/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(content)){
-    const {url,max} = toSmallUrl(content, $("#imgMode").value, mine);
-    t.innerHTML = `<b>${author}</b><time>${nowStr()}</time><br>`;
-    const img = document.createElement("img");
-    img.src = url;
-    img.style.maxWidth = max + "px";
-    wrap.appendChild(t);
-    wrap.appendChild(img);
-  }else{
-    t.innerHTML = `<b>${author}</b><time>${nowStr()}</time>：${content}`;
-    wrap.appendChild(t);
-  }
-
-  $("#log").appendChild(wrap);
-  scrollToBottom();
+function speak(text){
+  if(!$("#bluetoothMode").checked) return;
+  try{ const u = new SpeechSynthesisUtterance(text); u.lang = "zh-CN"; speechSynthesis.speak(u);}catch(e){}
 }
 
-/* 系统提示 */
-function sys(text){
-  const d=document.createElement("div");
-  d.className="sys";
-  d.textContent = text;
-  $("#log").appendChild(d);
-}
-
-/* ====== 业务逻辑 ====== */
+/* ------- 房间/订阅 ------- */
 let roomId = new URL(location.href).searchParams.get("room") || "";
 if(roomId) $("#room").value = roomId;
 
-let mediaStream = null;
 let dbChannel = null;
-
-async function loadHistory(){
-  const { data, error } = await supabase
-    .from("messages")
-    .select("author,content,created_at")
-    .eq("room_id", roomId)
-    .order("created_at", { ascending:true })
-    .limit(200);
-  $("#log").innerHTML = "";
-  if(error){ sys("加载历史失败："+error.message); return; }
-  for(const m of data){
-    renderMessage(m, m.author==="我");
-  }
-}
-
 async function joinRoom(){
   roomId = $("#room").value.trim() || crypto.randomUUID().slice(0,8);
-  const url=new URL(location.href); url.searchParams.set("room",roomId); history.replaceState(null,"",url);
+  const url = new URL(location.href); url.searchParams.set("room",roomId); history.replaceState(null,"",url);
 
-  sys(`房间：${roomId}（把此链接发给对方加入同房间）`);
+  // 历史消息
   await loadHistory();
 
-  // 取消旧频道
+  // 订阅实时
   if(dbChannel) await supabase.removeChannel(dbChannel);
-
-  // 订阅仅用于接收「对方」的新增消息（忽略自己，避免重复）
   dbChannel = supabase
-    .channel("messages:"+roomId)
+    .channel("db:"+roomId)
     .on("postgres_changes",
-      { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}` },
+      {event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}`},
       payload=>{
         const m = payload.new;
-        if(m.author === "我") return;          // ⭐ 忽略自己，避免重复
-        renderMessage(m, false);
-        speak(m.content);
-      })
-    .subscribe();
-
-  scrollToBottom();
+        addMsg({author:m.author, content:m.content, mine:m.author==="我"});
+        if(m.author!=="我") speak(m.content);
+      }
+    ).subscribe();
 }
-
-async function sendText(v){
-  if(!v) return;
-  // 先本地渲染，秒回
-  renderMessage({author:"我", content:v, created_at:new Date().toISOString()}, true);
-  $("#text").value="";
-
-  // 再写库
-  const { error } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content:v });
-  if(error){ sys("发送失败："+error.message); }
-}
-
-/* 图片列表（可选，用不着就不显示墙） */
-// 留接口：如果你要在页内显示“图片墙”，可以在这里补；当前我们直接用消息里的图片卡展示。
-
-/* ====== 事件绑定 ====== */
 $("#join").onclick = joinRoom;
 if(roomId) joinRoom();
 
-$("#imgMode").onchange = ()=>{ /* 切换显示模式时重绘历史内容 */
-  loadHistory();
-};
+/* ------- 历史 ------- */
+async function loadHistory(){
+  const { data, error } = await supabase.from("messages")
+    .select("author,content,created_at")
+    .eq("room_id", roomId)
+    .order("created_at", {ascending:true})
+    .limit(200);
+  if(error) return;
+  logBox.innerHTML="";
+  for(const m of data){
+    addMsg({author:m.author, content:m.content, mine:m.author==="我"});
+  }
+}
 
+/* ------- 发送文字（不本地重复渲染，等 Realtime） ------- */
+async function sendText(v){
+  if(!v) return;
+  const { error } = await supabase.from("messages").insert({room_id:roomId, author:"我", content:v});
+  if(error){ alert("发送失败："+error.message); return; }
+  $("#text").value=""; // 等订阅回显，避免双渲染
+}
 $("#send").onclick = ()=> sendText($("#text").value.trim());
 $("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
 
-/* 相机控制 */
+/* ------- 图片模式切换 ------- */
+$("#imgMode").addEventListener("change", e=>{
+  document.body.classList.remove("enlarge-others","enlarge-all","enlarge-off");
+  document.body.classList.add(e.target.value);
+});
+
+/* ------- 相机 ------- */
+let mediaStream=null;
+const preview = $("#preview");
+const camBar = $("#camBar");
+
 $("#openCam").onclick = async ()=>{
   try{
     mediaStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
-    $("#preview").srcObject = mediaStream;
-    $("#previewCard").style.display = "block";
-  }catch(e){ sys("相机权限失败："+e.message); }
+    preview.srcObject = mediaStream;
+    camBar.style.display = "flex";
+  }catch(e){ alert("相机权限失败："+e.message); }
 };
-
 $("#closeCam").onclick = ()=>{
-  if(mediaStream){
-    mediaStream.getTracks().forEach(t=>t.stop());
-    mediaStream = null;
-  }
-  $("#preview").srcObject = null;
-  $("#previewCard").style.display = "none";
+  if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
+  preview.srcObject = null;
+  camBar.style.display = "none";
 };
 
 $("#shot").onclick = async ()=>{
-  if(!mediaStream) return sys("请先开启相机");
-  const video = $("#preview");
+  if(!roomId) return alert("请先加入/创建房间");
+  if(!mediaStream) return alert("请先开启相机");
+
+  const video = preview;
   const c = document.createElement("canvas");
   const w = video.videoWidth || 1280, h = video.videoHeight || 720;
   c.width=w; c.height=h;
   c.getContext("2d").drawImage(video,0,0,w,h);
   const blob = await new Promise(r=>c.toBlob(r,"image/jpeg",0.9));
-
   const fname = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
-  const { error } = await supabase.storage.from(BUCKET).upload(fname, blob, { contentType:"image/jpeg", upsert:false });
-  if(error){ sys("上传失败："+error.message); return; }
 
+  const { error } = await supabase.storage.from(BUCKET).upload(fname, blob, { contentType:"image/jpeg", upsert:false });
+  if(error){ alert("上传失败："+error.message); return; }
   const { data:pub } = supabase.storage.from(BUCKET).getPublicUrl(fname);
 
-  // 先本地渲染（我）
-  renderMessage({author:"我", content:pub.publicUrl, created_at:new Date().toISOString()}, true);
-
-  // 再写库（给对方同步）
-  const { error:err2 } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content: pub.publicUrl });
-  if(err2){ sys("写入消息失败："+err2.message); }
+  // 只写库，等 Realtime 渲染
+  const { error:insErr } = await supabase.from("messages").insert({ room_id:roomId, author:"我", content:pub.publicUrl });
+  if(insErr){ alert("写入消息失败："+insErr.message); }
 };
+
+/* 初始模式同步（防止历史选择残留） */
+document.body.classList.add($("#imgMode").value);
 </script>
+</body>
 </html>

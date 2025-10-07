@@ -257,12 +257,12 @@ let stream = null;
 let facing = "environment"; // 默认后置
 let rotation = 0;           // 0/90/180/270
 
-// 动态在相机面板里插入「翻转」「旋转」按钮 & 左下角缩略图
+// 动态在相机面板里插入「切换镜头」「旋转」按钮 & 左下角缩略图
 function ensureCamUI(){
-  const pane = $("#camPane"); if(!pane) return;
+  const pane = document.querySelector("#camPane"); if(!pane) return;
 
-  // 缩略图
-  if (!$("#miniShot")) {
+  // 左下角小缩略图
+  if (!document.querySelector("#miniShot")) {
     const mini = document.createElement("div");
     mini.id = "miniShot";
     Object.assign(mini.style, {
@@ -276,8 +276,8 @@ function ensureCamUI(){
     pane.appendChild(mini);
   }
 
-  // 翻转
-  if (!$("#flipBtn")) {
+  // 切换前/后摄
+  if (!document.querySelector("#flipBtn")) {
     const btn = document.createElement("button");
     btn.id = "flipBtn";
     btn.textContent = "切换镜头";
@@ -290,8 +290,8 @@ function ensureCamUI(){
     pane.appendChild(btn);
   }
 
-  // 旋转
-  if (!$("#rotateBtn")) {
+  // 旋转画面
+  if (!document.querySelector("#rotateBtn")) {
     const btn = document.createElement("button");
     btn.id = "rotateBtn";
     btn.textContent = "旋转画面";
@@ -299,47 +299,62 @@ function ensureCamUI(){
     btn.style.position="absolute"; btn.style.right="12px"; btn.style.bottom="126px";
     btn.addEventListener("click", ()=>{
       rotation = (rotation + 90) % 360;
-      const v = $("#camView"); if (v) v.style.transform = `rotate(${rotation}deg)`;
+      const v = document.querySelector("#camView");
+      if (v) v.style.transform = `rotate(${rotation}deg)`;
     });
     pane.appendChild(btn);
   }
 }
 
-async function restartStream(){
-  // 停止旧流
-  if (stream) { stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  const video = $("#camView"); if (video) { video.srcObject = null; video.style.transform = `rotate(${rotation}deg)`; }
-
-  // 重新打开
-  await openCamWithFacing();
-}
-
+// 打开相机（先按 facingMode 试；失败则枚举设备挑后置）
 async function openCamWithFacing(){
-  const video = $("#camView"); const pane = $("#camPane");
+  const video = document.querySelector("#camView");
+  const pane = document.querySelector("#camPane");
   if (!video || !pane) return;
 
+  // 先试「后置/前置」意向约束
   const constraints = {
-    video: {
-      facingMode: { ideal: facing },
-      width: { ideal: 1280 }, height: { ideal: 720 }
-    },
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
     audio: false
   };
 
   try {
     stream = await navigator.mediaDevices.getUserMedia(constraints)
-      .catch(() => navigator.mediaDevices.getUserMedia({ video:true, audio:false }));
+      .catch(async () => {
+        // 回退：枚举设备，尽量选到后置
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter(d => d.kind === "videoinput");
+        let back = cams.find(d => /back|rear|environment/i.test(d.label)) || cams[1] || cams[0];
+        if (!back) throw new Error("未找到摄像头");
+        return navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: back.deviceId }, width: { ideal:1280 }, height: { ideal:720 } },
+          audio: false
+        });
+      });
+
     if (!stream) throw new Error("相机流为空");
     video.srcObject = stream;
-    await video.play();
+
+    // iOS 播放兼容
+    try { await video.play(); }
+    catch { setTimeout(()=> video.play().catch(()=>{}), 30); }
   } catch (e) {
     pane.classList.remove("show");
     alert("相机打开失败：" + e.message + "\n请确认：1) 使用 HTTPS 访问；2) Safari 已允许相机权限。");
   }
 }
 
+// 重新拉流（切镜头后调用）
+async function restartStream(){
+  if (stream) { stream.getTracks().forEach(t=>t.stop()); stream = null; }
+  const video = document.querySelector("#camView");
+  if (video) { video.srcObject = null; video.style.transform = `rotate(${rotation}deg)`; }
+  await openCamWithFacing();
+}
+
+// 进入相机全屏
 async function openCamFull(){
-  const pane = $("#camPane"); if (!pane) return;
+  const pane = document.querySelector("#camPane"); if (!pane) return;
   pane.classList.add("show");
   ensureCamUI();
 
@@ -348,33 +363,28 @@ async function openCamFull(){
     return alert("此浏览器不支持相机访问，请使用 Safari，并在系统设置中允许相机。");
   }
   await openCamWithFacing();
-  showToast("相机已启动");
+  showToast?.("相机已启动");
 }
-$("#openCam")?.addEventListener("click", openCamFull);
 
-// 关闭（工具条 & 全屏里的按钮都可用）
+// 关闭相机（工具条 & 全屏按钮共用）
 function closeCam(){
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream = null; }
-  const pane = $("#camPane"); if (pane) pane.classList.remove("show");
+  if (stream) { stream.getTracks().forEach(t=>t.stop()); stream = null; }
+  const pane = document.querySelector("#camPane"); if (pane) pane.classList.remove("show");
 }
-$("#closeCam")?.addEventListener("click", closeCam);
-$("#closeCamBtn")?.addEventListener("click", closeCam);
 
-// 拍照并上传（工具条 & 全屏按钮）
+// 拍照 + 上传（含乐观渲染 & 左下角小缩略图提示）
 async function takeShotAndUpload(){
   if (!stream) return alert("请先打开相机");
   if (!roomId) return alert("房间不存在");
 
-  const video = $("#camView");
+  const video = document.querySelector("#camView");
   const c = document.createElement("canvas");
-  // 旋转下的绘制
   let w = video.videoWidth || 1280, h = video.videoHeight || 720;
-  if (rotation % 180 !== 0) [w, h] = [h, w];
+  if (rotation % 180 !== 0) [w,h] = [h,w];
   c.width = w; c.height = h;
   const ctx = c.getContext("2d");
 
   ctx.save();
-  // 把画布坐标系旋转到与 video 一致
   if (rotation === 90) { ctx.translate(w, 0); ctx.rotate(Math.PI/2); }
   else if (rotation === 180) { ctx.translate(w, h); ctx.rotate(Math.PI); }
   else if (rotation === 270) { ctx.translate(0, h); ctx.rotate(3*Math.PI/2); }
@@ -384,8 +394,8 @@ async function takeShotAndUpload(){
   const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
   const created_at = new Date().toISOString();
 
-  // 小缩略图提示（左下角）
-  const mini = $("#miniShot");
+  // 左下角小预览提示
+  const mini = document.querySelector("#miniShot");
   const miniImg = mini?.querySelector("img");
   if (mini && miniImg) {
     miniImg.src = URL.createObjectURL(blob);
@@ -393,31 +403,33 @@ async function takeShotAndUpload(){
     setTimeout(()=> mini.style.display = "none", 1800);
   }
 
-  // 乐观渲染
+  // 乐观渲染（不等上传/推送也能立刻看到）
   const tempUrl = URL.createObjectURL(blob);
   renderOne({ room_id: roomId, author_id: myId, type:"image", content: tempUrl, created_at });
 
-  // 上传
+  // 真正上传
   const fname = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
   const { error } = await supabase.storage.from(BUCKET)
     .upload(fname, blob, { contentType:"image/jpeg", upsert:false });
   if (error) return alert("上传失败："+error.message);
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(fname);
 
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(fname);
   await supabase.from("messages").insert({
     room_id: roomId, author_id: myId, type:"image", content: data.publicUrl
   });
 
-  showToast("已拍照并发送");
+  showToast?.("已拍照并发送");
 }
-$("#shot")?.addEventListener("click", takeShotAndUpload);
-$("#shootBtn")?.addEventListener("click", takeShotAndUpload);
 
-// 监听页面隐藏时自动关闭相机（iOS 省电）
-document.addEventListener("visibilitychange", ()=>{
-  if (document.hidden) closeCam();
-});
+/* 事件绑定（保持你已有按钮 ID 不变即可） */
+document.querySelector("#openCam")?.addEventListener("click", openCamFull);
+document.querySelector("#closeCam")?.addEventListener("click", closeCam);
+document.querySelector("#closeCamBtn")?.addEventListener("click", closeCam);
+document.querySelector("#shot")?.addEventListener("click", takeShotAndUpload);
+document.querySelector("#shootBtn")?.addEventListener("click", takeShotAndUpload);
 
+// 页面隐藏自动关流（iOS 省电 & 避免僵死）
+document.addEventListener("visibilitychange", ()=>{ if (document.hidden) closeCam(); });
 /* -------------------- 消息内点图 = 预览 -------------------- */
 log?.addEventListener("click", e=>{
   const a = e.target.closest(".msg a"); if(!a) return;

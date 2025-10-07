@@ -1,3 +1,200 @@
+/* ===== 诊断 + 兜底：iPhone 相机打不开排查 & 降级 ===== */
+
+// 诊断弹窗（把最关键信息一次性弹出来）
+async function debugDiag(e){
+  const ua = navigator.userAgent;
+  const secure = location.protocol === 'https:';
+  const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  let cams = -1;
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    cams = devs.filter(d => d.kind === 'videoinput').length;
+  } catch {}
+  alert(
+`相机打开失败：${e?.name||''} ${e?.message||e||''}
+
+诊断：
+- HTTPS：${secure ? '是' : '否'}
+- getUserMedia：${hasMedia ? '可用' : '不可用'}
+- 摄像头数量（可能为0表示权限未授予或容器屏蔽）：${cams}
+- UA：${ua}
+
+请在 Safari 里打开，地址栏 Aa→“网站设置”→摄像头设为“允许”，然后重试。`
+  );
+}
+
+// 兜底：用 <input type="file" accept="image/*" capture="environment"> 拍照/选图上传
+function fallbackCapture(roomId, myId, BUCKET){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';     // iOS 会优先调后置相机
+  input.onchange = async ()=>{
+    const f = input.files?.[0]; if(!f) return;
+    // 乐观渲染
+    const tempUrl = URL.createObjectURL(f);
+    renderOne({ room_id:roomId, author_id:myId, type:'image', content:tempUrl, created_at:new Date().toISOString() });
+    // 上传
+    const key = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+    const { error } = await supabase.storage.from(BUCKET).upload(key, f, { upsert:false });
+    if(error) return alert('上传失败：'+error.message);
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(key);
+    await supabase.from('messages').insert({ room_id:roomId, author_id:myId, type:'image', content:data.publicUrl });
+    showToast?.('已发送');
+  };
+  input.click();
+}
+
+/* ===== 相机主逻辑（带两级回退 + 旋转 + 切换前后摄 + 小缩略图） ===== */
+
+let stream = null;
+let facing = 'environment'; // 默认后置
+let rotation = 0;
+
+async function openCamWithFacing(){
+  const video = document.querySelector('#camView');
+  const pane  = document.querySelector('#camPane');
+  if(!video || !pane) return;
+
+  const primary = {
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  };
+
+  try {
+    // 一级：按 facingMode 试
+    stream = await navigator.mediaDevices.getUserMedia(primary);
+  } catch (e1) {
+    try {
+      // 二级回退：枚举设备选后置
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const cams = devs.filter(d => d.kind === 'videoinput');
+      const back = cams.find(d => /back|rear|environment/i.test(d.label)) || cams[1] || cams[0];
+      if(!back) throw e1;
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: back.deviceId } },
+        audio: false
+      });
+    } catch(e2) {
+      pane.classList.remove('show');
+      await debugDiag(e2);
+      // 彻底兜底：文件 input
+      fallbackCapture(roomId, myId, BUCKET);
+      throw e2;
+    }
+  }
+
+  video.srcObject = stream;
+  try { await video.play(); } catch { setTimeout(()=>video.play().catch(()=>{}), 30); }
+}
+
+async function restartStream(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  const v = document.querySelector('#camView');
+  if(v){ v.srcObject=null; v.style.transform = `rotate(${rotation}deg)`; }
+  await openCamWithFacing();
+}
+
+function ensureCamUI(){
+  const pane = document.querySelector('#camPane'); if(!pane) return;
+
+  if(!document.querySelector('#miniShot')){
+    const mini = document.createElement('div');
+    mini.id='miniShot';
+    Object.assign(mini.style,{
+      position:'absolute', left:'10px', bottom:'74px', width:'66px', height:'66px',
+      border:'1px solid rgba(255,255,255,.25)', borderRadius:'10px', overflow:'hidden',
+      background:'#111', display:'none', zIndex:'120'
+    });
+    const img=document.createElement('img');
+    Object.assign(img.style,{ width:'100%', height:'100%', objectFit:'cover' });
+    mini.appendChild(img); pane.appendChild(mini);
+  }
+
+  if(!document.querySelector('#flipBtn')){
+    const b=document.createElement('button');
+    b.id='flipBtn'; b.textContent='切换镜头'; b.className='cam-btn';
+    Object.assign(b.style,{ position:'absolute', right:'12px', bottom:'74px' });
+    b.onclick = async ()=>{ facing = (facing==='environment'?'user':'environment'); await restartStream(); };
+    pane.appendChild(b);
+  }
+
+  if(!document.querySelector('#rotateBtn')){
+    const b=document.createElement('button');
+    b.id='rotateBtn'; b.textContent='旋转画面'; b.className='cam-btn';
+    Object.assign(b.style,{ position:'absolute', right:'12px', bottom:'126px' });
+    b.onclick = ()=>{ rotation = (rotation+90)%360; const v=document.querySelector('#camView'); if(v) v.style.transform=`rotate(${rotation}deg)`; };
+    pane.appendChild(b);
+  }
+}
+
+async function openCamFull(){
+  const pane=document.querySelector('#camPane');
+  if(!pane) return;
+  pane.classList.add('show');
+  ensureCamUI();
+
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+    pane.classList.remove('show');
+    alert('此环境不支持相机，请改用 Safari 打开。');
+    fallbackCapture(roomId, myId, BUCKET);
+    return;
+  }
+  try { await openCamWithFacing(); showToast?.('相机已启动'); }
+  catch { /* 已在 openCamWithFacing 里兜底与诊断 */ }
+}
+
+function closeCam(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  document.querySelector('#camPane')?.classList.remove('show');
+}
+
+async function takeShotAndUpload(){
+  if(!stream) { alert('请先打开相机'); return; }
+  if(!roomId){ alert('房间不存在'); return; }
+
+  const video = document.querySelector('#camView');
+  const c = document.createElement('canvas');
+  let w = video.videoWidth||1280, h = video.videoHeight||720;
+  if(rotation%180!==0) [w,h]=[h,w];
+  c.width=w; c.height=h;
+  const ctx=c.getContext('2d');
+
+  ctx.save();
+  if(rotation===90){ ctx.translate(w,0); ctx.rotate(Math.PI/2); }
+  else if(rotation===180){ ctx.translate(w,h); ctx.rotate(Math.PI); }
+  else if(rotation===270){ ctx.translate(0,h); ctx.rotate(3*Math.PI/2); }
+  ctx.drawImage(video,0,0,video.videoWidth||1280,video.videoHeight||720);
+  ctx.restore();
+
+  const blob = await new Promise(r=> c.toBlob(r,'image/jpeg',0.9));
+  const created_at = new Date().toISOString();
+
+  const mini=document.querySelector('#miniShot'); const miniImg=mini?.querySelector('img');
+  if(mini && miniImg){ miniImg.src = URL.createObjectURL(blob); mini.style.display='block'; setTimeout(()=>mini.style.display='none',1800); }
+
+  // 乐观渲染
+  renderOne({ room_id:roomId, author_id:myId, type:'image', content:URL.createObjectURL(blob), created_at });
+
+  const key = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+  const { error } = await supabase.storage.from(BUCKET).upload(key, blob, { contentType:'image/jpeg', upsert:false });
+  if(error) return alert('上传失败：'+error.message);
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(key);
+  await supabase.from('messages').insert({ room_id:roomId, author_id:myId, type:'image', content:data.publicUrl });
+  showToast?.('已拍照并发送');
+}
+
+// 事件绑定
+document.querySelector('#openCam')?.addEventListener('click', openCamFull);
+document.querySelector('#closeCam')?.addEventListener('click', closeCam);
+document.querySelector('#closeCamBtn')?.addEventListener('click', closeCam);
+document.querySelector('#shot')?.addEventListener('click', takeShotAndUpload);
+document.querySelector('#shootBtn')?.addEventListener('click', takeShotAndUpload);
+
+// 页面隐藏自动关流
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) closeCam(); });
+
+
 // chat.js  — iPhone 8 兼容 + 相机/缩略图/滑动预览/实时渲染优化
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET } from "./sb-config.js";

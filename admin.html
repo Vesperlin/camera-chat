@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>控制台 · 房间与模板</title>
+<style>
+  body{margin:0;background:#0f1115;color:#e9edf1;font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Noto Sans SC",sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  h1{font-size:20px;margin:8px 0 12px}
+  .card{background:#12151c;border:1px solid #1e2430;border-radius:12px;padding:12px;margin:12px 0}
+  label{display:block;color:#9aa3af;font-size:13px;margin:6px 0 4px}
+  input,textarea,select{width:100%;background:#0c0f14;border:1px solid #1e2430;color:#e9edf1;border-radius:10px;padding:8px}
+  button{background:#6b8afd;border:0;color:#fff;border-radius:10px;padding:8px 12px;font-weight:700}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .muted{color:#95a0ac}
+  .list{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto}
+  .msg{display:flex;gap:8px;align-items:center}
+  .msg img{width:72px;height:auto;border-radius:8px;border:1px solid #1e2430}
+  .flex{display:flex;gap:8px;align-items:center}
+  .danger{background:#742a2a}
+</style>
+
+<div class="wrap">
+  <h1>控制台</h1>
+
+  <div class="card">
+    <h3>创建/分发房间</h3>
+    <div class="row">
+      <div>
+        <label>房间ID（留空自动生成）</label>
+        <input id="roomId" placeholder="例如 vesper1">
+        <label><input type="checkbox" id="ocrToggle"> 启用 AI-OCR 整合</label>
+        <div class="flex">
+          <button id="createRoom">创建/更新</button>
+          <button id="closeRoom" class="danger">关闭房间</button>
+        </div>
+      </div>
+      <div>
+        <label>分发链接</label>
+        <div class="grid">
+          <button id="linkA">复制 A（拍照/朗读/功能X）</button>
+          <button id="linkB">复制 B（模板优先）</button>
+          <button id="linkC">复制 C（监看端）</button>
+        </div>
+        <small class="muted">说明：链接形如 <span class="mono">/index.html?room=xxx&role=A</span></small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>模板管理</h3>
+    <label>模板（每行一个）</label>
+    <textarea id="tplArea" rows="6"></textarea>
+    <div class="flex">
+      <button id="saveTpl">保存模板</button>
+      <button id="loadTpl">载入模板</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>实时监控（该房间）</h3>
+    <div class="flex">
+      <button id="startWatch">开始监听</button>
+      <button id="stopWatch" class="danger">停止</button>
+      <button id="exportJson">导出JSON</button>
+    </div>
+    <div id="watchList" class="list"></div>
+  </div>
+</div>
+
+<script type="module" src="admin.js"></script>
+</html>

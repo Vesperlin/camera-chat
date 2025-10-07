@@ -1,9 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-/** ====== 你的 Supabase 配置 ====== **/
-const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";   // ←替换
-const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";                 // ←替换
-const BUCKET = "photos";                                   // ←替换
+import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET } from "./sb-config.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 

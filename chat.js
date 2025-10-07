@@ -1,9 +1,11 @@
+// chat.js  —— 1v1 相机 + 聊天（修复相机：后置优先 / 拍照上传 / 正确关闭）
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET } from "./sb-config.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/** ====== DOM & 状态 ====== */
+/* ========== DOM & 状态 ========== */
 const $ = s => document.querySelector(s);
 const log = $("#log");
 const viewer = $("#viewer");
@@ -20,25 +22,27 @@ const myId = (() => {
   return v;
 })();
 
-let imageMode = "only-peer"; // only-peer | all-small | all-large
+let imageMode = "only-peer";      // only-peer | all-small | all-large
 let dbChannel = null;
 let lastDividerTime = 0;
 
-/** ====== 工具 ====== */
+/* ========== 小工具 ========== */
 const speak = t => {
-  if (!$("#ttsToggle").checked) return;
+  if (!$("#ttsToggle")?.checked) return;
   try {
     const u = new SpeechSynthesisUtterance(t);
-    u.lang = "zh-CN"; speechSynthesis.speak(u);
+    u.lang = "zh-CN";
+    speechSynthesis.speak(u);
   } catch {}
 };
 const showToast = t => {
+  if (!toastEl) return;
   toastEl.textContent = t;
   toastEl.classList.add("show");
   setTimeout(()=>toastEl.classList.remove("show"), 1200);
 };
 
-/** ====== 渲染 ====== */
+/* ========== 渲染 ========== */
 function needTimeDivider(createdAt) {
   const t = new Date(createdAt).getTime();
   if (t - lastDividerTime > 5*60*1000) { // 5 分钟分隔
@@ -56,22 +60,31 @@ function renderOne(m, isHistory=false) {
   if (needTimeDivider(m.created_at)) addTimeDivider(m.created_at);
 
   const row = document.createElement("div");
-  row.className = "row " + (m.author_id===myId? "self":"peer");
+  row.className = "row " + (m.author_id===myId ? "self" : "peer");
 
   const bubble = document.createElement("div");
   bubble.className = "msg";
 
   if (m.type === "image") {
     const a = document.createElement("a");
-    a.href = m.content; a.onclick = e=>{ e.preventDefault(); viewerImg.src = a.href; viewer.classList.add("show"); };
-    const img = document.createElement("img"); img.src = m.content; a.appendChild(img);
-    // 放大规则
+    a.href = m.content;
+    a.onclick = e => {
+      e.preventDefault();
+      viewerImg.src = a.href;
+      viewer.classList.add("show");
+    };
+    const img = document.createElement("img");
+    img.src = m.content;
+    a.appendChild(img);
+
     const mine = (m.author_id===myId);
     const shouldLarge = imageMode==="all-large" || (imageMode==="only-peer" && !mine);
     if (shouldLarge) bubble.classList.add("enlarge");
     bubble.appendChild(a);
   } else {
-    const p = document.createElement("p"); p.textContent = m.content; bubble.appendChild(p);
+    const p = document.createElement("p");
+    p.textContent = m.content;
+    bubble.appendChild(p);
   }
 
   row.appendChild(bubble);
@@ -81,7 +94,7 @@ function renderOne(m, isHistory=false) {
   if (m.type==="text" && m.author_id!==myId) speak(m.content);
 }
 
-/** ====== 历史与实时 ====== */
+/* ========== 历史 & 实时 ========== */
 async function loadHistory() {
   const { data, error } = await supabase.from("messages")
     .select("*").eq("room_id", roomId)
@@ -99,16 +112,18 @@ function subRealtime() {
     .subscribe();
 }
 
-/** ====== 房间 ====== */
+/* ========== 房间 ========== */
 $("#join").onclick = async () => {
   roomId = $("#room").value.trim() || crypto.randomUUID().slice(0,8);
-  const url = new URL(location.href); url.searchParams.set("room", roomId);
+  const url = new URL(location.href);
+  url.searchParams.set("room", roomId);
   history.replaceState(null,"",url);
-  await loadHistory(); subRealtime();
+  await loadHistory();
+  subRealtime();
 };
 if (roomId) { loadHistory(); subRealtime(); }
 
-/** ====== 发送文字 ====== */
+/* ========== 发送文字 ========== */
 $("#send").onclick = async ()=>{
   const v = $("#text").value.trim(); if(!v) return;
   $("#text").value = "";
@@ -118,12 +133,13 @@ $("#send").onclick = async ()=>{
 };
 $("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
 
-/** ====== 图片模式切换（只放大对方 / 全缩略 / 全放大） ====== */
+/* ========== 图片模式切换 ========== */
 $("#modeSeg").addEventListener("click", e=>{
   const btn = e.target.closest("button"); if(!btn) return;
   [...$("#modeSeg").children].forEach(b=>b.classList.remove("active"));
   btn.classList.add("active");
   imageMode = btn.dataset.mode;
+
   // 重新应用
   log.querySelectorAll(".row").forEach(row=>{
     const mine = row.classList.contains("self");
@@ -136,13 +152,13 @@ $("#modeSeg").addEventListener("click", e=>{
   });
 });
 
-/** ====== + 面板 ====== */
+/* ========== “更多”抽屉 ========== */
 const sheet = $("#sheet"), mask = $("#sheetMask");
 const openSheet = ()=>{ sheet.classList.add("show"); mask.classList.add("show"); }
 const closeSheet = ()=>{ sheet.classList.remove("show"); mask.classList.remove("show"); }
 $("#plusBtn").onclick = openSheet; mask.onclick = closeSheet;
 
-/** 面板项：模板 */
+/* 模板 */
 const templates = [
   "[状态] 我已到达",
   "[状态] 我已离开",
@@ -159,7 +175,7 @@ $("#sheetTemplate").onclick = ()=>{
   }
 };
 
-/** 面板项：上传图片 */
+/* 上传图片 */
 $("#sheetUpload").onclick = ()=>{
   closeSheet();
   const input = document.createElement("input");
@@ -174,46 +190,94 @@ $("#sheetUpload").onclick = ()=>{
   };
   input.click();
 };
-
-/** 面板项：打开相机（进入全屏相机） */
 $("#sheetCamera").onclick = ()=>{ closeSheet(); openCamFull(); };
 $("#sheetMode").onclick = ()=>{ closeSheet(); $("#modeSeg button")[1]?.click(); };
 
 viewer.addEventListener("click", ()=> viewer.classList.remove("show"));
 
-/** ====== 相机全屏模式 ====== */
-let stream = null;
-async function openCamFull(){
-  $("#camPane").classList.add("show");
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
-  }catch(e){ $("#camPane").classList.remove("show"); return alert("相机权限失败："+e.message); }
-  $("#camView").srcObject = stream; await $("#camView").play();
+/* ========== 相机（后置优先 / 拍照上传 / 正确关闭） ========== */
+const cam = {
+  stream: null,
+  opening: false,
+  pane: $("#camPane"),
+  video: $("#camView"),
+};
+
+async function tryGet(constraints){
+  try { return await navigator.mediaDevices.getUserMedia(constraints); }
+  catch { return null; }
 }
-$("#openCam").onclick = openCamFull;
 
-$("#closeCam,#closeCamBtn").onclick = ()=>{
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  $("#camPane").classList.remove("show");
-};
+async function openCamFull(){
+  if (cam.opening) return;
+  cam.opening = true;
 
-$("#shot,#shootBtn").onclick = async ()=>{
-  if(!stream) return alert("请先打开相机");
-  const video = $("#camView");
+  // 先尝试后置，失败回退前置
+  let stream = await tryGet({ video: { facingMode: { ideal: "environment" } }, audio:false });
+  if (!stream) stream = await tryGet({ video: { facingMode: "user" }, audio:false });
+  cam.opening = false;
+
+  if (!stream) { showToast("相机权限失败"); return; }
+
+  cam.stream = stream;
+  cam.video.srcObject = stream;
+  cam.pane.classList.add("show");
+
+  try { await cam.video.play(); } catch {}
+  showToast("已开启相机（全屏预览）");
+}
+
+function closeCam(){
+  if (cam.stream) {
+    cam.stream.getTracks().forEach(t=>t.stop());
+    cam.stream = null;
+  }
+  cam.video.srcObject = null;
+  cam.pane.classList.remove("show");
+  showToast("已关闭相机");
+}
+
+async function shootAndUpload(){
+  if (!cam.stream) { showToast("请先开启相机"); return; }
+
+  const v = cam.video;
+  if (v.readyState < 2) { try { await v.play(); } catch {} }
+
+  const w = v.videoWidth || 1280;
+  const h = v.videoHeight || 720;
   const c = document.createElement("canvas");
-  c.width = video.videoWidth||1280; c.height = video.videoHeight||720;
-  c.getContext("2d").drawImage(video,0,0,c.width,c.height);
-  const blob = await new Promise(r=> c.toBlob(r,"image/jpeg",0.9));
-  const path = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType:"image/jpeg", upsert:false });
-  if(error) return alert(error.message);
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  await supabase.from("messages").insert({ room_id:roomId, author_id:myId, type:"image", content:data.publicUrl });
-  showToast("已拍照并发送");
-};
+  c.width = w; c.height = h;
+  c.getContext("2d").drawImage(v, 0, 0, w, h);
+  const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.9));
 
-/** ====== 预览 ====== */
+  if (!blob) { showToast("拍照失败"); return; }
+
+  const path = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+  const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, blob, {
+    contentType: "image/jpeg", upsert: false
+  });
+  if (upErr) { alert("上传失败："+upErr.message); return; }
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  await supabase.from("messages").insert({
+    room_id: roomId, author_id: myId, type:"image", content: data.publicUrl
+  });
+
+  showToast("已拍照并上传");
+}
+
+/* 绑定两套按钮（工具栏 & 面板内） */
+$("#openCam")?.addEventListener("click", openCamFull);
+$("#shot")?.addEventListener("click", shootAndUpload);
+$("#closeCam")?.addEventListener("click", closeCam);
+
+$("#shootBtn")?.addEventListener("click", shootAndUpload);
+$("#closeCamBtn")?.addEventListener("click", closeCam);
+
+/* ========== 消息区：点击图片全屏预览 ========== */
 log.addEventListener("click", e=>{
   const a = e.target.closest(".msg a"); if(!a) return;
-  e.preventDefault(); viewerImg.src = a.href; viewer.classList.add("show");
+  e.preventDefault();
+  viewerImg.src = a.href;
+  viewer.classList.add("show");
 });

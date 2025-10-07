@@ -3,76 +3,163 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./sb-config.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const $ = s=>document.querySelector(s);
-let roomId = "";
-let watchChan = null;
-const BUCKET = "photos";                                   // ←你的桶
+/* ---------- DOM ---------- */
+const $ = s => document.querySelector(s);
+const toast = (t) => {
+  const el = $("#toast");
+  el.textContent = t;
+  el.classList.add("show");
+  setTimeout(()=>el.classList.remove("show"), 1200);
+};
 
-/** 房间&OCR 配置保存在 rooms 表 */
-$("#createRoom").onclick = async ()=>{
-  roomId = $("#roomId").value.trim() || crypto.randomUUID().slice(0,8);
-  const ocr = $("#ocrToggle").checked;
+let currentRoom = null;
+let sub = null;
+
+/* ---------- 生成角色链接 ---------- */
+function buildRoleLinks(roomId){
+  const base = location.origin + location.pathname.replace(/admin\.html$/,"index.html");
+  const A = `${base}?room=${encodeURIComponent(roomId)}&role=A`;
+  const B = `${base}?room=${encodeURIComponent(roomId)}&role=B`;
+  const C = `${base}?room=${encodeURIComponent(roomId)}&role=C`;
+  $("#links").innerHTML = `
+    <div>当前房间：<span class="badge">${roomId}</span></div>
+    <div style="margin-top:6px">
+      <a href="${A}" target="_blank">A 链接</a>
+      <a href="${B}" target="_blank">B 链接</a>
+      <a href="${C}" target="_blank">C 链接</a>
+    </div>`;
+  $("#copyA").onclick = ()=>{ navigator.clipboard.writeText(A); toast("已复制 A 链接"); };
+  $("#copyB").onclick = ()=>{ navigator.clipboard.writeText(B); toast("已复制 B 链接"); };
+  $("#copyC").onclick = ()=>{ navigator.clipboard.writeText(C); toast("已复制 C 链接"); };
+}
+
+/* ---------- 创建/加载 房间 ---------- */
+async function createOrLoadRoom(){
+  let rid = $("#roomId").value.trim();
+  if(!rid) rid = crypto.randomUUID().slice(0,8);
+  const ocrEnabled = $("#ocrSel").value === "true";
+
+  // upsert rooms
   const { error } = await supabase.from("rooms")
-    .upsert({ id:roomId, ocr_enabled:ocr }, { onConflict:"id" });
-  if(error) return alert(error.message);
-  alert("房间已创建/更新："+roomId);
-};
+    .upsert({ id: rid, ocr_enabled: ocrEnabled })
+    .select().single();
+  if(error){ alert("创建/加载房间失败："+error.message); return; }
 
-$("#closeRoom").onclick = async ()=>{
-  roomId = $("#roomId").value.trim();
-  if(!roomId) return alert("先填房间ID");
-  const { error } = await supabase.from("rooms").delete().eq("id",roomId);
-  if(error) return alert(error.message);
-  alert("已关闭房间");
-};
+  currentRoom = rid;
+  $("#roomId").value = rid;
+  buildRoleLinks(rid);
+  toast("房间就绪");
 
-/** 分发链接 */
-function copy(s){ navigator.clipboard.writeText(s); alert("已复制："+s); }
-const base = location.origin + location.pathname.replace(/admin\.html$/,"index.html");
-$("#linkA").onclick=()=>{ roomId = $("#roomId").value.trim(); if(!roomId) return alert("先填房间ID"); copy(`${base}?room=${roomId}&role=A`); };
-$("#linkB").onclick=()=>{ roomId = $("#roomId").value.trim(); if(!roomId) return alert("先填房间ID"); copy(`${base}?room=${roomId}&role=B`); };
-$("#linkC").onclick=()=>{ roomId = $("#roomId").value.trim(); if(!roomId) return alert("先填房间ID"); copy(`${base}?room=${roomId}&role=C`); };
+  // 载入模板
+  loadTemplates();
+  // 订阅
+  subLive();
+}
 
-/** 模板：存 templates 表 */
-$("#saveTpl").onclick = async ()=>{
-  roomId = $("#roomId").value.trim(); if(!roomId) return alert("先填房间ID");
-  const lines = $("#tplArea").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  const { error } = await supabase.from("templates").upsert({ room_id:roomId, body:lines }, { onConflict:"room_id" });
-  if(error) alert(error.message); else alert("已保存");
-};
-$("#loadTpl").onclick = async ()=>{
-  roomId = $("#roomId").value.trim(); if(!roomId) return alert("先填房间ID");
-  const { data, error } = await supabase.from("templates").select("*").eq("room_id",roomId).single();
-  if(error || !data) return alert("尚无模板");
-  $("#tplArea").value = (data.body||[]).join("\n");
-};
+/* ---------- 模板 ---------- */
+async function loadTemplates(){
+  if(!currentRoom) return;
+  const { data, error } = await supabase.from("templates")
+    .select("body").eq("room_id", currentRoom).maybeSingle();
+  if(error){ console.warn(error.message); return; }
+  const arr = data?.body || [];
+  $("#tplBox").value = arr.join("\n");
+}
+async function saveTemplates(){
+  if(!currentRoom) return alert("请先创建/加载房间");
+  const lines = $("#tplBox").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const { error } = await supabase.from("templates")
+    .upsert({ room_id: currentRoom, body: lines });
+  if(error){ alert("保存失败："+error.message); return; }
+  toast("模板已保存");
+}
 
-/** 监听房间消息 */
-$("#startWatch").onclick = async ()=>{
-  roomId = $("#roomId").value.trim(); if(!roomId) return alert("先填房间ID");
-  $("#watchList").innerHTML = "";
-  if(watchChan) supabase.removeChannel(watchChan);
-  const add = (m)=>{
-    const d = document.createElement("div"); d.className="msg";
-    d.innerHTML = m.type==="image"
-      ? `<img src="${m.content}"><span>${m.author_id.slice(0,6)} · 图片</span>`
-      : `<span class="mono">${m.author_id.slice(0,6)}</span><span>${m.content}</span>`;
-    $("#watchList").appendChild(d);
-  };
-  // 历史
-  const { data } = await supabase.from("messages").select("*").eq("room_id",roomId).order("created_at",{ascending:true}).limit(200);
-  data?.forEach(add);
-  // 实时
-  watchChan = supabase.channel("watch:"+roomId)
-    .on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`room_id=eq.${roomId}`}, p=>add(p.new))
-    .subscribe();
-};
-$("#stopWatch").onclick = ()=>{ if(watchChan) supabase.removeChannel(watchChan); watchChan=null; };
+/* ---------- 实时监控 ---------- */
+function renderOne(m){
+  const li = document.createElement("div");
+  li.textContent = `[${m.created_at?.slice(11,19)||"--:--:--"}] ${m.author_id?.slice(0,8)||"anon"} | ${m.type} | ${m.content}`;
+  $("#liveList").prepend(li);
+}
+async function loadRecent(){
+  if(!currentRoom) return;
+  const { data, error } = await supabase.from("messages")
+    .select("*").eq("room_id", currentRoom).order("created_at",{ascending:false}).limit(50);
+  if(error){ console.warn(error.message); return; }
+  $("#liveList").innerHTML = "";
+  data.reverse().forEach(renderOne);
+}
+function subLive(){
+  if(sub) supabase.removeChannel(sub);
+  if(!currentRoom) return;
+  loadRecent();
+  sub = supabase.channel("admin:"+currentRoom)
+    .on("postgres_changes",
+      { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${currentRoom}` },
+      payload => renderOne(payload.new)
+    ).subscribe();
+}
+
+/* ---------- 导出/清空/删除 ---------- */
+async function fetchAll(){
+  const { data, error } = await supabase.from("messages")
+    .select("*").eq("room_id", currentRoom).order("created_at",{ascending:true});
+  if(error) throw new Error(error.message);
+  return data || [];
+}
+function download(filename, text, type="application/json"){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text],{type}));
+  a.download = filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
 
 $("#exportJson").onclick = async ()=>{
-  roomId = $("#roomId").value.trim(); if(!roomId) return alert("先填房间ID");
-  const { data } = await supabase.from("messages").select("*").eq("room_id",roomId).order("created_at",{ascending:true}).limit(1000);
-  const blob = new Blob([JSON.stringify(data||[],null,2)],{type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href=url; a.download=`room_${roomId}.json`; a.click(); URL.revokeObjectURL(url);
+  if(!currentRoom) return;
+  const rows = await fetchAll();
+  download(`room-${currentRoom}.json`, JSON.stringify(rows,null,2));
 };
+$("#exportCsv").onclick = async ()=>{
+  if(!currentRoom) return;
+  const rows = await fetchAll();
+  const head = ["id","room_id","author_id","type","content","created_at"];
+  const csv = [head.join(",")].concat(
+    rows.map(r=> head.map(k=>{
+      const v = r[k] ?? "";
+      return `"${String(v).replace(/"/g,'""')}"`;
+    }).join(","))
+  ).join("\n");
+  download(`room-${currentRoom}.csv`, csv, "text/csv");
+};
+$("#clearMsg").onclick = async ()=>{
+  if(!currentRoom) return;
+  if(!confirm("确定清空该房间的消息？此操作不可撤销。")) return;
+  const { error } = await supabase.from("messages").delete().eq("room_id", currentRoom);
+  if(error){ alert(error.message); return; }
+  $("#liveList").innerHTML = "";
+  toast("已清空消息");
+};
+$("#deleteRoom").onclick = async ()=>{
+  if(!currentRoom) return;
+  if(!confirm("确定删除房间（含模板与消息）？不可撤销。")) return;
+  await supabase.from("messages").delete().eq("room_id", currentRoom);
+  await supabase.from("templates").delete().eq("room_id", currentRoom);
+  const { error } = await supabase.from("rooms").delete().eq("id", currentRoom);
+  if(error){ alert(error.message); return; }
+  currentRoom=null; if(sub) supabase.removeChannel(sub);
+  $("#links").textContent = "未选择房间"; $("#tplBox").value = ""; $("#liveList").innerHTML = "";
+  toast("已删除房间");
+};
+
+/* ---------- 事件绑定 ---------- */
+$("#createRoom").onclick = createOrLoadRoom;
+$("#saveTpl").onclick = saveTemplates;
+$("#loadTpl").onclick = loadTemplates;
+
+/* 支持从 URL 中 ?room=xxx 直接打开房间 */
+{
+  const rid = new URL(location.href).searchParams.get("room");
+  if(rid){
+    $("#roomId").value = rid;
+    createOrLoadRoom();
+  }
+}

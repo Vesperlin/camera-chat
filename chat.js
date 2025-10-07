@@ -1,176 +1,223 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
-const BUCKET = "photos";
+/** ====== 你的 Supabase 配置 ====== **/
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";   // ←替换
+const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";                 // ←替换
+const BUCKET = "photos";                                   // ←替换
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// 本地 ID 用于左右区分
-const myId = (() => {
-  const k = "clientId";
-  let v = localStorage.getItem(k);
-  if (!v) {
-    v = crypto.randomUUID();
-    localStorage.setItem(k, v);
-  }
-  return v;
-})();
-
+/** ====== DOM & 状态 ====== */
 const $ = s => document.querySelector(s);
+const log = $("#log");
+const viewer = $("#viewer");
+const viewerImg = $("#viewer img");
+const toastEl = $("#toast");
+
 let roomId = new URL(location.href).searchParams.get("room") || "";
 if (roomId) $("#room").value = roomId;
 
-let dbChannel = null;
-let lastTime = 0;
+const myId = (() => {
+  const k = "client_id";
+  let v = localStorage.getItem(k);
+  if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v); }
+  return v;
+})();
 
-// 加入房间
-$("#join").onclick = async () => {
-  roomId = $("#room").value.trim() || crypto.randomUUID().slice(0, 8);
-  const url = new URL(location.href);
-  url.searchParams.set("room", roomId);
-  history.replaceState(null, "", url);
-  await loadHistory();
-  subscribeRealtime();
+let imageMode = "only-peer"; // only-peer | all-small | all-large
+let dbChannel = null;
+let lastDividerTime = 0;
+
+/** ====== 工具 ====== */
+const speak = t => {
+  if (!$("#ttsToggle").checked) return;
+  try {
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = "zh-CN"; speechSynthesis.speak(u);
+  } catch {}
+};
+const showToast = t => {
+  toastEl.textContent = t;
+  toastEl.classList.add("show");
+  setTimeout(()=>toastEl.classList.remove("show"), 1200);
 };
 
-// 加载历史消息
-async function loadHistory() {
-  const { data } = await supabase.from("messages")
-    .select("*").eq("room_id", roomId)
-    .order("created_at", { ascending: true }).limit(300);
-  $("#log").innerHTML = "";
-  data.forEach(renderMessage);
+/** ====== 渲染 ====== */
+function needTimeDivider(createdAt) {
+  const t = new Date(createdAt).getTime();
+  if (t - lastDividerTime > 5*60*1000) { // 5 分钟分隔
+    lastDividerTime = t; return true;
+  }
+  return false;
+}
+function addTimeDivider(createdAt) {
+  const d = document.createElement("div");
+  d.className = "time-divider";
+  d.textContent = new Date(createdAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"});
+  log.appendChild(d);
+}
+function renderOne(m, isHistory=false) {
+  if (needTimeDivider(m.created_at)) addTimeDivider(m.created_at);
+
+  const row = document.createElement("div");
+  row.className = "row " + (m.author_id===myId? "self":"peer");
+
+  const bubble = document.createElement("div");
+  bubble.className = "msg";
+
+  if (m.type === "image") {
+    const a = document.createElement("a");
+    a.href = m.content; a.onclick = e=>{ e.preventDefault(); viewerImg.src = a.href; viewer.classList.add("show"); };
+    const img = document.createElement("img"); img.src = m.content; a.appendChild(img);
+    // 放大规则
+    const mine = (m.author_id===myId);
+    const shouldLarge = imageMode==="all-large" || (imageMode==="only-peer" && !mine);
+    if (shouldLarge) bubble.classList.add("enlarge");
+    bubble.appendChild(a);
+  } else {
+    const p = document.createElement("p"); p.textContent = m.content; bubble.appendChild(p);
+  }
+
+  row.appendChild(bubble);
+  log.appendChild(row);
+  if (!isHistory) log.scrollTop = log.scrollHeight;
+
+  if (m.type==="text" && m.author_id!==myId) speak(m.content);
 }
 
-// 订阅实时消息
-function subscribeRealtime() {
+/** ====== 历史与实时 ====== */
+async function loadHistory() {
+  const { data, error } = await supabase.from("messages")
+    .select("*").eq("room_id", roomId)
+    .order("created_at",{ascending:true}).limit(500);
+  if (error) { alert(error.message); return; }
+  log.innerHTML = ""; lastDividerTime = 0;
+  data.forEach(m=>renderOne(m, true));
+}
+function subRealtime() {
   if (dbChannel) supabase.removeChannel(dbChannel);
-  dbChannel = supabase.channel("room:" + roomId)
-    .on("postgres_changes", {
-      event: "INSERT",
-      schema: "public",
-      table: "messages",
-      filter: `room_id=eq.${roomId}`,
-    }, payload => renderMessage(payload.new))
+  dbChannel = supabase.channel("room:"+roomId)
+    .on("postgres_changes",{
+      event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${roomId}`
+    }, payload => renderOne(payload.new))
     .subscribe();
 }
 
-// 渲染消息
-function renderMessage(m) {
-  const log = $("#log");
+/** ====== 房间 ====== */
+$("#join").onclick = async () => {
+  roomId = $("#room").value.trim() || crypto.randomUUID().slice(0,8);
+  const url = new URL(location.href); url.searchParams.set("room", roomId);
+  history.replaceState(null,"",url);
+  await loadHistory(); subRealtime();
+};
+if (roomId) { loadHistory(); subRealtime(); }
 
-  // 插入时间分隔
-  const t = new Date(m.created_at).getTime();
-  if (t - lastTime > 5 * 60 * 1000) {
-    const divider = document.createElement("div");
-    divider.className = "time-divider";
-    divider.textContent = new Date(m.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    log.appendChild(divider);
-    lastTime = t;
-  }
-
-  const msg = document.createElement("div");
-  msg.className = "msg " + (m.author_id === myId ? "self" : "peer");
-
-  if (m.type === "image") {
-    const img = document.createElement("img");
-    img.src = m.content;
-    img.className = "thumb";
-    img.onclick = () => showImage(m.content);
-    msg.appendChild(img);
-  } else {
-    const p = document.createElement("p");
-    p.textContent = m.content;
-    msg.appendChild(p);
-  }
-
-  log.appendChild(msg);
-  log.scrollTop = log.scrollHeight;
-
-  // 蓝牙朗读
-  if ($("#ttsToggle").checked && m.author_id !== myId && m.type === "text") {
-    const u = new SpeechSynthesisUtterance(m.content);
-    u.lang = "zh-CN";
-    speechSynthesis.speak(u);
-  }
-}
-
-// 发送文字
-$("#send").onclick = async () => {
-  const text = $("#text").value.trim();
-  if (!text) return;
+/** ====== 发送文字 ====== */
+$("#send").onclick = async ()=>{
+  const v = $("#text").value.trim(); if(!v) return;
   $("#text").value = "";
   await supabase.from("messages").insert({
-    room_id: roomId,
-    author_id: myId,
-    type: "text",
-    content: text,
+    room_id: roomId, author_id: myId, type:"text", content:v
   });
 };
+$("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
 
-// 上传图片
-$("#sheetPhoto").onclick = async () => {
+/** ====== 图片模式切换（只放大对方 / 全缩略 / 全放大） ====== */
+$("#modeSeg").addEventListener("click", e=>{
+  const btn = e.target.closest("button"); if(!btn) return;
+  [...$("#modeSeg").children].forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  imageMode = btn.dataset.mode;
+  // 重新应用
+  log.querySelectorAll(".row").forEach(row=>{
+    const mine = row.classList.contains("self");
+    const bubble = row.querySelector(".msg");
+    const hasImg = !!row.querySelector("img");
+    bubble.classList.remove("enlarge");
+    if (!hasImg) return;
+    const shouldLarge = imageMode==="all-large" || (imageMode==="only-peer" && !mine);
+    if (shouldLarge) bubble.classList.add("enlarge");
+  });
+});
+
+/** ====== + 面板 ====== */
+const sheet = $("#sheet"), mask = $("#sheetMask");
+const openSheet = ()=>{ sheet.classList.add("show"); mask.classList.add("show"); }
+const closeSheet = ()=>{ sheet.classList.remove("show"); mask.classList.remove("show"); }
+$("#plusBtn").onclick = openSheet; mask.onclick = closeSheet;
+
+/** 面板项：模板 */
+const templates = [
+  "[状态] 我已到达",
+  "[状态] 我已离开",
+  "[表单] 姓名=；数量=；备注=",
+  "[系统] 我已拍照并上传"
+];
+$("#sheetTemplate").onclick = ()=>{
+  closeSheet();
+  const label = "选择模板（输入编号）：\n" + templates.map((t,i)=>`${i+1}. ${t}`).join("\n");
+  const idx = Number(prompt(label,"1"));
+  if(Number.isFinite(idx) && idx>=1 && idx<=templates.length){
+    const v = templates[idx-1];
+    supabase.from("messages").insert({ room_id:roomId, author_id:myId, type:"text", content:v });
+  }
+};
+
+/** 面板项：上传图片 */
+$("#sheetUpload").onclick = ()=>{
+  closeSheet();
   const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async () => {
-    const file = input.files[0];
-    const fname = `${roomId}/${Date.now()}-${file.name}`;
-    await supabase.storage.from(BUCKET).upload(fname, file, { upsert: false });
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(fname);
-    await supabase.from("messages").insert({
-      room_id: roomId,
-      author_id: myId,
-      type: "image",
-      content: data.publicUrl,
-    });
+  input.type = "file"; input.accept = "image/*";
+  input.onchange = async ()=>{
+    const f = input.files[0]; if(!f) return;
+    const path = `${roomId}/${Date.now()}-${f.name}`;
+    const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert:false });
+    if(error) return alert(error.message);
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    await supabase.from("messages").insert({ room_id:roomId, author_id:myId, type:"image", content:data.publicUrl });
   };
   input.click();
 };
 
-// 相机模式
-let stream = null;
-$("#sheetCamera").onclick = async () => {
-  $("#camPane").classList.add("show");
-  stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  $("#camView").srcObject = stream;
-  $("#camView").play();
-};
+/** 面板项：打开相机（进入全屏相机） */
+$("#sheetCamera").onclick = ()=>{ closeSheet(); openCamFull(); };
+$("#sheetMode").onclick = ()=>{ closeSheet(); $("#modeSeg button")[1]?.click(); };
 
-$("#closeCamBtn").onclick = () => {
-  stream?.getTracks().forEach(t => t.stop());
+viewer.addEventListener("click", ()=> viewer.classList.remove("show"));
+
+/** ====== 相机全屏模式 ====== */
+let stream = null;
+async function openCamFull(){
+  $("#camPane").classList.add("show");
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
+  }catch(e){ $("#camPane").classList.remove("show"); return alert("相机权限失败："+e.message); }
+  $("#camView").srcObject = stream; await $("#camView").play();
+}
+$("#openCam").onclick = openCamFull;
+
+$("#closeCam,#closeCamBtn").onclick = ()=>{
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   $("#camPane").classList.remove("show");
 };
 
-$("#shootBtn").onclick = async () => {
+$("#shot,#shootBtn").onclick = async ()=>{
+  if(!stream) return alert("请先打开相机");
   const video = $("#camView");
   const c = document.createElement("canvas");
-  c.width = video.videoWidth;
-  c.height = video.videoHeight;
-  c.getContext("2d").drawImage(video, 0, 0);
-  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
-  const fname = `${roomId}/${Date.now()}.jpg`;
-  await supabase.storage.from(BUCKET).upload(fname, blob);
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(fname);
-  await supabase.from("messages").insert({
-    room_id: roomId,
-    author_id: myId,
-    type: "image",
-    content: data.publicUrl,
-  });
-  toast("已拍照并发送");
+  c.width = video.videoWidth||1280; c.height = video.videoHeight||720;
+  c.getContext("2d").drawImage(video,0,0,c.width,c.height);
+  const blob = await new Promise(r=> c.toBlob(r,"image/jpeg",0.9));
+  const path = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType:"image/jpeg", upsert:false });
+  if(error) return alert(error.message);
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  await supabase.from("messages").insert({ room_id:roomId, author_id:myId, type:"image", content:data.publicUrl });
+  showToast("已拍照并发送");
 };
 
-// 小功能
-function toast(msg) {
-  const t = $("#toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 1500);
-}
-
-function showImage(url) {
-  $("#viewer img").src = url;
-  $("#viewer").classList.add("show");
-}
-$("#viewer").onclick = () => $("#viewer").classList.remove("show");
+/** ====== 预览 ====== */
+log.addEventListener("click", e=>{
+  const a = e.target.closest(".msg a"); if(!a) return;
+  e.preventDefault(); viewerImg.src = a.href; viewer.classList.add("show");
+});

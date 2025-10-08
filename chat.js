@@ -1,14 +1,15 @@
+// chat.js  —— Realtime + 兜底轮询版
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET, ROOM_ID } from "./sb-config.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ===== 角色（B/C），从 URL 取 ?role=，默认 B =====
+// 角色（通过 ?role=，默认 B）
 const params = new URL(location.href).searchParams;
 const ROLE = (params.get("role") || "B").toUpperCase();
 document.getElementById("roleTag").textContent = ROLE;
 
-// ===== DOM =====
+// DOM
 const $ = s => document.querySelector(s);
 const log = $("#log");
 const viewer = $("#viewer");
@@ -16,7 +17,7 @@ const viewerImg = $("#viewer img");
 const prevBtn = $("#prev");
 const nextBtn = $("#next");
 
-// ===== 状态 =====
+// 状态
 const myId = (() => {
   const k = "client_id";
   let v = localStorage.getItem(k);
@@ -25,13 +26,14 @@ const myId = (() => {
 })();
 let imageMode = "only-peer"; // only-peer | all-small | all-large
 let lastDivider = 0;
-let realtimeChannel = null;
-
-// 预览相册（用于左右切换）
-let gallery = []; // {url, id}
+let gallery = [];   // {url, id, created_at}
 let galleryIdx = -1;
 
-// ===== 工具 =====
+let realtimeChannel = null;
+let pollTimer = null;
+let lastSeenTs = null; // ISO 字符串，增量拉取用
+
+// 工具
 function needDivider(ts) {
   const t = new Date(ts).getTime();
   if (t - lastDivider > 5*60*1000) { lastDivider = t; return true; }
@@ -43,8 +45,6 @@ function addDivider(ts) {
   d.textContent = new Date(ts).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"});
   log.appendChild(d);
 }
-function isMine(m){ return m.author_id === myId; }
-function isImg(m){ return m.type === "image"; }
 function applyBubbleSize(rowEl, mine, hasImg){
   const bubble = rowEl.querySelector(".msg");
   bubble.classList.remove("enlarge");
@@ -52,8 +52,10 @@ function applyBubbleSize(rowEl, mine, hasImg){
   const shouldLarge = imageMode==="all-large" || (imageMode==="only-peer" && !mine);
   if (shouldLarge) bubble.classList.add("enlarge");
 }
+const isMine = m => m.author_id === myId;
+const isImg  = m => m.type === "image";
 
-// ===== 渲染一条 =====
+// 渲染
 function renderOne(m, fromHistory=false){
   if (needDivider(m.created_at)) addDivider(m.created_at);
 
@@ -66,10 +68,16 @@ function renderOne(m, fromHistory=false){
   if (isImg(m)) {
     const a = document.createElement("a");
     a.href = m.content;
-    const img = document.createElement("img"); img.src = m.content; a.appendChild(img);
+    const img = document.createElement("img");
+    img.src = m.content;
+    a.appendChild(img);
     a.onclick = e => { e.preventDefault(); openViewerByUrl(m.content); };
     bubble.appendChild(a);
-    if (!gallery.find(x=>x.url===m.content)) gallery.push({url:m.content, id:m.id});
+
+    if (!gallery.find(x=>x.url===m.content)) {
+      gallery.push({url:m.content, id:m.id, created_at:m.created_at});
+      gallery.sort((a,b)=> new Date(a.created_at)-new Date(b.created_at));
+    }
     applyBubbleSize(row, isMine(m), true);
   } else {
     const p = document.createElement("p");
@@ -80,9 +88,14 @@ function renderOne(m, fromHistory=false){
   row.appendChild(bubble);
   log.appendChild(row);
   if (!fromHistory) log.scrollTop = log.scrollHeight;
+
+  // 更新 lastSeenTs
+  if (!lastSeenTs || new Date(m.created_at) > new Date(lastSeenTs)) {
+    lastSeenTs = m.created_at;
+  }
 }
 
-// ===== 历史+实时 =====
+// 历史 + 实时
 async function loadHistory(){
   const { data, error } = await supabase
     .from("messages")
@@ -91,9 +104,11 @@ async function loadHistory(){
     .order("created_at", { ascending: true })
     .limit(500);
   if (error) { alert("加载历史失败："+error.message); return; }
-  log.innerHTML = ""; lastDivider = 0; gallery = [];
+  log.innerHTML = ""; lastDivider = 0; gallery = []; lastSeenTs = null;
   data.forEach(m => renderOne(m, true));
+  if (data.length) lastSeenTs = data[data.length-1].created_at;
 }
+
 function subRealtime(){
   if (realtimeChannel) supabase.removeChannel(realtimeChannel);
   realtimeChannel = supabase.channel("room:"+ROOM_ID)
@@ -101,10 +116,31 @@ function subRealtime(){
       { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${ROOM_ID}` },
       payload => renderOne(payload.new)
     )
-    .subscribe();
+    .subscribe((status) => {
+      // 订阅状态仅做记录，不中断流程
+      // console.log("Realtime status:", status);
+    });
 }
 
-// ===== 发送文字 =====
+// 兜底轮询（每 5 秒增量取一次）
+async function pollNew(){
+  if (!lastSeenTs) { await loadHistory(); return; }
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("room_id", ROOM_ID)
+    .gt("created_at", lastSeenTs)
+    .order("created_at", { ascending: true })
+    .limit(100);
+  if (error) return; // 静默
+  data.forEach(m => renderOne(m));
+}
+function startPolling(){
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(pollNew, 5000);
+}
+
+// 发送文字
 $("#send").onclick = async ()=>{
   const v = $("#text").value.trim(); if(!v) return;
   $("#text").value = "";
@@ -115,7 +151,7 @@ $("#send").onclick = async ()=>{
 };
 $("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
 
-// ===== 图片模式切换 =====
+// 图片模式切换
 $("#modeSeg").addEventListener("click", (e)=>{
   const btn = e.target.closest("button"); if(!btn) return;
   [...$("#modeSeg").children].forEach(b=>b.classList.remove("active"));
@@ -127,7 +163,7 @@ $("#modeSeg").addEventListener("click", (e)=>{
   });
 });
 
-// ===== 大图查看 + 左右滑 =====
+// 大图查看 + 左右滑
 function openViewerByUrl(url){
   galleryIdx = gallery.findIndex(x=>x.url===url);
   if (galleryIdx < 0) galleryIdx = 0;
@@ -152,7 +188,7 @@ viewer.addEventListener("touchend", e=>{
   if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) move(dx<0?1:-1);
 }, {passive:true});
 
-// ===== B 端拍照/上传 =====
+// B 端拍照/上传
 const filePicker = document.getElementById('filePicker');
 const fileCamera = document.getElementById('fileCamera');
 const btnPhoto   = document.getElementById('btnPhoto');
@@ -168,12 +204,12 @@ async function uploadAndSend(fileBlob, filenameHint='cam.jpg') {
       room_id: ROOM_ID, author_id: myId, type: 'image', content: data.publicUrl
     });
     if (msgErr) { alert('写入消息失败：' + msgErr.message); return; }
+    // 立刻本地显示一份
     renderOne({id:null, room_id:ROOM_ID, author_id:myId, type:'image', content:data.publicUrl, created_at:new Date().toISOString()});
   } catch (e) {
     alert('上传异常：' + e.message);
   }
 }
-
 btnPhoto?.addEventListener('click', () => filePicker.click());
 filePicker?.addEventListener('change', async () => {
   const f = filePicker.files?.[0]; if (!f) return;
@@ -187,6 +223,7 @@ fileCamera?.addEventListener('change', async () => {
   fileCamera.value = '';
 });
 
-// ===== 启动 =====
+// 启动
 await loadHistory();
 subRealtime();
+startPolling();

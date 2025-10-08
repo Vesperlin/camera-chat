@@ -1,106 +1,64 @@
 <!doctype html>
 <html lang="zh-CN">
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
-<title>控制台 · 聊天室管理</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>控制端 · CameraChat</title>
 <style>
   :root{
-    --bg:#0f1115;--panel:#151821;--panel2:#0f1218;--line:#1e2430;
-    --text:#e9edf1;--sub:#9aa3af;--brand:#6b8afd;--danger:#7a1c1c;
-    --r:12px;--gap:12px;--safe:env(safe-area-inset-bottom);
+    --bg:#0f1115;--panel:#141926;--text:#eef1f5;--sub:#94a0b2;--line:#232a3a;
+    --brand:#6b8afd;--ok:#2cba7c;--danger:#a84a4a;--r:12px;
   }
-  *{box-sizing:border-box} html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--text);
-    font:15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Noto Sans SC",sans-serif}
-  a{color:#bcd0ff;text-decoration:none}
-  .wrap{min-height:100%;display:flex;flex-direction:column}
-  header{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,var(--panel2),var(--panel));
-    border-bottom:1px solid var(--line);padding:10px 12px}
-  h1{margin:0 0 6px;font-size:18px}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:10px 0}
+  h2{margin:0 0 10px;font-size:18px}
+  input,button,textarea,select{background:#0e1220;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  button{background:var(--brand);border:0}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .ipt,.sel{height:38px;background:#0c0f14;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:0 10px}
-  .ipt{min-width:220px} .sel{min-width:140px}
-  .btn{height:38px;padding:0 12px;border:0;border-radius:10px;font-weight:600}
-  .btn.brand{background:var(--brand);color:#fff}
-  .btn.ghost{background:#0c0f14;color:var(--text);border:1px solid var(--line)}
-  .btn.danger{background:#2a1111;color:#ffd5d5;border:1px solid #542424}
-  main{display:grid;gap:12px;padding:12px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px}
-  .card h2{margin:0 0 8px;font-size:16px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  textarea{width:100%;min-height:100px;background:#0c0f14;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:8px 10px}
-  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .list{display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow:auto}
-  .badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#0d1220;border:1px solid var(--line);color:#c8d2ff;font-size:12px}
-  .muted{color:var(--sub)}
-  .row-actions{display:flex;gap:6px;flex-wrap:wrap}
-  .hr{height:1px;background:var(--line);margin:10px 0}
-  .small{font-size:12px}
-  .links a{display:inline-block;margin-right:8px}
-  .toast{position:fixed;left:50%;bottom:calc(16px + var(--safe));transform:translateX(-50%);background:#11161e;color:#e9edf1;border:1px solid var(--line);padding:8px 12px;border-radius:10px;opacity:0;pointer-events:none;transition:.2s;z-index:200}
-  .toast.show{opacity:1}
-  @media (max-width:860px){ .grid2{grid-template-columns:1fr} }
+  .ok{background:var(--ok)}
+  .danger{background:var(--danger)}
+  #feed{height:48vh;overflow:auto;display:flex;flex-direction:column;gap:8px}
+  .msg{border:1px solid var(--line);border-radius:10px;padding:8px}
+  .msg small{color:var(--sub)}
+  .msg img{display:block;max-width:520px;width:56%;border-radius:8px;border:1px solid var(--line);margin-top:6px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
 </style>
 
-<body>
 <div class="wrap">
-  <header>
-    <h1>控制台 · 聊天室管理</h1>
+  <div class="card">
+    <h2>房间与分发</h2>
     <div class="row">
-      <input id="roomId" class="ipt mono" placeholder="房间ID（留空自动生成）" />
-      <select id="ocrSel" class="sel">
-        <option value="false">AI OCR：关闭</option>
-        <option value="true">AI OCR：开启（A端）</option>
-      </select>
-      <button id="createRoom" class="btn brand">新建/加载房间</button>
-      <span class="muted small">创建后可分发角色链接、实时监控、导出/清空记录</span>
+      <label>房间ID</label>
+      <input id="room" class="mono" placeholder="如 vesper1" style="min-width:160px">
+      <button id="create">创建/切换</button>
+      <label class="row"><input id="ocr" type="checkbox"> 开启 AI OCR（写入 rooms.ocr_enabled）</label>
+      <button id="saveRoom" class="ok">保存</button>
     </div>
-  </header>
-
-  <main>
-    <section class="grid2">
-      <div class="card">
-        <h2>分发链接（复制给对应角色）</h2>
-        <div id="links" class="links small muted">未选择房间</div>
-        <div class="hr"></div>
-        <div class="row-actions">
-          <button id="copyA" class="btn ghost small">复制 A 链接</button>
-          <button id="copyB" class="btn ghost small">复制 B 链接</button>
-          <button id="copyC" class="btn ghost small">复制 C 链接</button>
-        </div>
+    <div style="margin-top:10px">
+      <div>角色B链接（发给对方）：</div>
+      <input id="bLink" class="mono" readonly style="width:100%;margin-top:6px">
+      <div class="row" style="margin-top:8px">
+        <button id="copyB">复制链接</button>
+        <button id="openB">新窗口打开测试</button>
       </div>
+      <p style="color:var(--sub);margin-top:8px">说明：角色A是你的 Pythonista App；B 用网页端；两者进入同一房间即可互通。</p>
+    </div>
+  </div>
 
-      <div class="card">
-        <h2>模板（每行一条）</h2>
-        <textarea id="tplBox" placeholder="[状态] 我已到达&#10;[表单] 姓名=；数量=；备注="></textarea>
-        <div class="row-actions">
-          <button id="saveTpl" class="btn brand">保存模板</button>
-          <button id="loadTpl" class="btn ghost">载入模板</button>
-        </div>
-      </div>
-    </section>
+  <div class="card">
+    <h2>模板管理（发给当前房间）</h2>
+    <div class="row">
+      <textarea id="tpl" rows="3" style="flex:1" placeholder="每行一个模板，如：\n[状态] 我已到达\n[系统] 已上传"></textarea>
+      <button id="sendTpl">发送所选模板</button>
+    </div>
+    <div style="margin-top:6px;color:var(--sub)">从下方历史里挑选文本或图片消息也可二次发送</div>
+  </div>
 
-    <section class="grid2">
-      <div class="card">
-        <h2>实时监控（消息流）</h2>
-        <div id="liveList" class="list mono small"></div>
-      </div>
-      <div class="card">
-        <h2>数据维护</h2>
-        <div class="row-actions">
-          <button id="exportJson" class="btn ghost">导出 JSON</button>
-          <button id="exportCsv" class="btn ghost">导出 CSV</button>
-          <button id="clearMsg" class="btn danger">清空消息</button>
-          <button id="deleteRoom" class="btn danger">删除房间（含模板）</button>
-        </div>
-        <p class="small muted">清空消息仅删除 <code>messages</code> 记录；删除房间会连同 <code>templates</code> 一并删除。</p>
-      </div>
-    </section>
-  </main>
-
-  <div id="toast" class="toast"></div>
+  <div class="card">
+    <h2>实时监控 · 历史</h2>
+    <div id="feed"></div>
+  </div>
 </div>
 
-<script type="module" src="./admin.js"></script>
-</body>
+<script type="module" src="admin.js"></script>
 </html>

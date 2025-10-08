@@ -2,45 +2,59 @@
 <html lang="zh-CN">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>角色B · CameraChat</title>
+<title>聊天（B 端） · 房间 1010</title>
+<link rel="icon" href="data:,">
 <style>
-  :root{
-    --bg:#0f1115;--panel:#121624;--text:#eaf0f6;--sub:#8d98ad;--line:#232a3a;--brand:#6b8afd;
-    --r:12px;--bubble:72vw;
-  }
-  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,"PingFang SC",sans-serif}
-  .top{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 12px;z-index:5}
-  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
-  #log{height:calc(100vh - 140px);overflow:auto;display:flex;flex-direction:column;gap:8px;padding:10px}
-  .row{display:flex}
-  .peer{justify-content:flex-start}.self{justify-content:flex-end}
-  .msg{max-width:var(--bubble);background:#151b27;border:1px solid var(--line);border-radius:12px;padding:8px 10px}
-  .self .msg{background:#1a2230}
-  .msg img{display:block;width:56vw;max-width:520px;border:1px solid var(--line);border-radius:10px}
-  .bottom{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:8px 12px}
-  .row2{display:flex;gap:8px}
-  input,button{background:#0e1220;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
-  button{background:var(--brand);border:0}
-  #tplList{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
-  .chip{background:#0e1322;border:1px solid var(--line);padding:6px 10px;border-radius:999px}
+  :root{--bg:#0f1115;--panel:#12151c;--text:#e9edf1;--sub:#97a1ad;--line:#1e2430;--brand:#6b8afd;--mine:#1b2431;--peer:#151b24;--r:14px;--gap:10px;--max:72vw}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,Roboto,"PingFang SC","Noto Sans SC",sans-serif}
+  .top{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 12px;z-index:9}
+  .seg{display:flex;gap:8px}
+  .seg button{background:#0c0f14;color:#dbe3ff;border:1px solid var(--line);border-radius:999px;padding:6px 10px}
+  #log{height:calc(100vh - 172px);overflow:auto;display:flex;flex-direction:column;gap:8px;padding:10px 8px}
+  .row{display:flex}.peer{justify-content:flex-start}.self{justify-content:flex-end}
+  .msg{max-width:var(--max);background:var(--peer);border:1px solid var(--line);padding:8px 10px;border-radius:12px}
+  .self .msg{background:var(--mine)}
+  .msg img{width:44vw;height:auto;border-radius:10px;border:1px solid var(--line)}
+  .msg.enlarge img{width:min(84vw,520px)}
+  .foot{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:8px 12px}
+  .tool{display:flex;gap:8px;margin-bottom:8px}
+  .tool button{border:1px solid var(--line);background:#0e1118;color:#fff;border-radius:999px;height:36px;padding:0 14px}
+  .comp{display:flex;gap:8px}
+  .comp input{flex:1;height:40px;border-radius:12px;border:1px solid var(--line);background:#0b0e14;color:#fff;padding:0 10px}
+  .comp button{height:40px;border-radius:999px;background:var(--brand);color:#fff;border:0;padding:0 16px}
+  .toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#11161e;border:1px solid var(--line);padding:8px 12px;border-radius:10px;opacity:0;transition:.2s}
+  .toast.show{opacity:1}
+  .viewer{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:99}
+  .viewer.show{display:flex}.viewer img{max-width:100vw;max-height:100vh}
 </style>
-
 <div class="top">
-  <div>房间：<span id="rid" class="mono"></span> · 角色B</div>
+  <div style="color:#9fb1ff;margin-bottom:6px">当前房间：<b>1010</b>（B 端）</div>
+  <div class="seg">
+    <button data-mode="only-peer" class="active">只放大对方</button>
+    <button data-mode="all-small">全部缩略</button>
+    <button data-mode="all-large">全部放大</button>
+  </div>
 </div>
 
 <div id="log"></div>
 
-<div class="bottom">
-  <div id="tplList"></div>
-  <div class="row2">
-    <input id="text" placeholder="发消息（回车发送）" style="flex:1">
-    <button id="send">发送</button>
-    <button id="up">图片</button>
-    <button id="cam">相机</button>
+<div class="viewer" id="viewer"><img alt=""></div>
+<div class="toast" id="toast"></div>
+
+<div class="foot">
+  <div class="tool">
+    <button id="openCam">相机</button>
+    <button id="shot">拍照上传</button>
+    <button id="closeCam">关闭相机</button>
+    <input id="file" type="file" accept="image/*" hidden>
+    <button id="pick">从相册上传</button>
   </div>
-  <input id="file" type="file" accept="image/*" hidden>
+  <div class="comp">
+    <input id="text" placeholder="发消息…（回车发送）">
+    <button id="send">发送</button>
+  </div>
 </div>
 
+<video id="cam" playsinline muted style="display:none"></video>
 <script type="module" src="b.js"></script>
 </html>

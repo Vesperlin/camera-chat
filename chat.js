@@ -1,113 +1,175 @@
-/* ===== 诊断 + 兜底：iPhone 相机打不开排查 & 降级 ===== */
+// chat.js
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET, ROOM_ID } from "./sb-config.js";
 
-// 诊断弹窗（把最关键信息一次性弹出来）
-async function debugDiag(e){
-  const ua = navigator.userAgent;
-  const secure = location.protocol === 'https:';
-  const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-  let cams = -1;
-  try {
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    cams = devs.filter(d => d.kind === 'videoinput').length;
-  } catch {}
-  alert(
-`相机打开失败：${e?.name||''} ${e?.message||e||''}
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-诊断：
-- HTTPS：${secure ? '是' : '否'}
-- getUserMedia：${hasMedia ? '可用' : '不可用'}
-- 摄像头数量（可能为0表示权限未授予或容器屏蔽）：${cams}
-- UA：${ua}
+// ===== 角色（B/C），从 URL 取 ?role=，默认 B =====
+const params = new URL(location.href).searchParams;
+const ROLE = (params.get("role") || "B").toUpperCase();
+document.getElementById("roleTag").textContent = ROLE;
 
-请在 Safari 里打开，地址栏 Aa→“网站设置”→摄像头设为“允许”，然后重试。`
-  );
+// ===== DOM =====
+const $ = s => document.querySelector(s);
+const log = $("#log");
+const viewer = $("#viewer");
+const viewerImg = $("#viewer img");
+const prevBtn = $("#prev");
+const nextBtn = $("#next");
+
+// ===== 状态 =====
+const myId = (() => {
+  const k = "client_id";
+  let v = localStorage.getItem(k);
+  if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v); }
+  return v;
+})();
+let imageMode = "only-peer"; // only-peer | all-small | all-large
+let lastDivider = 0;
+let realtimeChannel = null;
+
+// 预览相册（用于左右切换）
+let gallery = []; // {url, id}
+let galleryIdx = -1;
+
+// ===== 工具 =====
+function needDivider(ts) {
+  const t = new Date(ts).getTime();
+  if (t - lastDivider > 5*60*1000) { lastDivider = t; return true; }
+  return false;
+}
+function addDivider(ts) {
+  const d = document.createElement("div");
+  d.className = "time";
+  d.textContent = new Date(ts).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"});
+  log.appendChild(d);
+}
+function isMine(m){ return m.author_id === myId; }
+function isImg(m){ return m.type === "image"; }
+function applyBubbleSize(rowEl, mine, hasImg){
+  const bubble = rowEl.querySelector(".msg");
+  bubble.classList.remove("enlarge");
+  if (!hasImg) return;
+  const shouldLarge = imageMode==="all-large" || (imageMode==="only-peer" && !mine);
+  if (shouldLarge) bubble.classList.add("enlarge");
 }
 
-// 兜底：用 <input type="file" accept="image/*" capture="environment"> 拍照/选图上传
-function fallbackCapture(roomId, myId, BUCKET){
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/*';
-  input.capture = 'environment';     // iOS 会优先调后置相机
-  input.onchange = async ()=>{
-    const f = input.files?.[0]; if(!f) return;
-    // 乐观渲染
-    const tempUrl = URL.createObjectURL(f);
-    renderOne({ room_id:roomId, author_id:myId, type:'image', content:tempUrl, created_at:new Date().toISOString() });
-    // 上传
-    const key = `${roomId}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
-    const { error } = await supabase.storage.from(BUCKET).upload(key, f, { upsert:false });
-    if(error) return alert('上传失败：'+error.message);
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(key);
-    await supabase.from('messages').insert({ room_id:roomId, author_id:myId, type:'image', content:data.publicUrl });
-    showToast?.('已发送');
-  };
-  input.click();
-}
+// ===== 渲染一条 =====
+function renderOne(m, fromHistory=false){
+  if (needDivider(m.created_at)) addDivider(m.created_at);
 
-/* ===== 相机主逻辑（带两级回退 + 旋转 + 切换前后摄 + 小缩略图） ===== */
+  const row = document.createElement("div");
+  row.className = "row " + (isMine(m) ? "self" : "peer");
 
-let stream = null;
-let facing = 'environment'; // 默认后置
-let rotation = 0;
+  const bubble = document.createElement("div");
+  bubble.className = "msg";
 
-async function openCamWithFacing(){
-  const video = document.querySelector('#camView');
-  const pane  = document.querySelector('#camPane');
-  if(!video || !pane) return;
+  if (isImg(m)) {
+    const a = document.createElement("a");
+    a.href = m.content;
+    const img = document.createElement("img"); img.src = m.content; a.appendChild(img);
+    a.onclick = e => { e.preventDefault(); openViewerByUrl(m.content); };
+    bubble.appendChild(a);
 
-  const primary = {
-    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: false
-  };
+    // 放入相册索引（避免重复）
+    if (!gallery.find(x=>x.url===m.content)) gallery.push({url:m.content, id:m.id});
+    applyBubbleSize(row, isMine(m), true);
 
-  try {
-    // 一级：按 facingMode 试
-    stream = await navigator.mediaDevices.getUserMedia(primary);
-  } catch (e1) {
-    try {
-      // 二级回退：枚举设备选后置
-      const devs = await navigator.mediaDevices.enumerateDevices();
-      const cams = devs.filter(d => d.kind === 'videoinput');
-      const back = cams.find(d => /back|rear|environment/i.test(d.label)) || cams[1] || cams[0];
-      if(!back) throw e1;
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: back.deviceId } },
-        audio: false
-      });
-    } catch(e2) {
-      pane.classList.remove('show');
-      await debugDiag(e2);
-      // 彻底兜底：文件 input
-      fallbackCapture(roomId, myId, BUCKET);
-      throw e2;
-    }
+  } else {
+    const p = document.createElement("p");
+    p.textContent = m.content;
+    bubble.appendChild(p);
   }
 
-  video.srcObject = stream;
-  try { await video.play(); } catch { setTimeout(()=>video.play().catch(()=>{}), 30); }
+  row.appendChild(bubble);
+  log.appendChild(row);
+  if (!fromHistory) log.scrollTop = log.scrollHeight;
 }
 
-async function restartStream(){
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  const v = document.querySelector('#camView');
-  if(v){ v.srcObject=null; v.style.transform = `rotate(${rotation}deg)`; }
-  await openCamWithFacing();
+// ===== 历史+实时 =====
+async function loadHistory(){
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("room_id", ROOM_ID)
+    .order("created_at", { ascending: true })
+    .limit(500);
+  if (error) { alert("加载历史失败："+error.message); return; }
+  log.innerHTML = ""; lastDivider = 0; gallery = [];
+  data.forEach(m => renderOne(m, true));
+}
+function subRealtime(){
+  if (realtimeChannel) supabase.removeChannel(realtimeChannel);
+  realtimeChannel = supabase.channel("room:"+ROOM_ID)
+    .on("postgres_changes",
+      { event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${ROOM_ID}` },
+      payload => renderOne(payload.new)
+    )
+    .subscribe();
 }
 
-function ensureCamUI(){
-  const pane = document.querySelector('#camPane'); if(!pane) return;
+// ===== 发送文字 =====
+$("#send").onclick = async ()=>{
+  const v = $("#text").value.trim(); if(!v) return;
+  $("#text").value = "";
+  const { error } = await supabase.from("messages").insert({
+    room_id: ROOM_ID, author_id: myId, type:"text", content: v
+  });
+  if (error) alert("发送失败："+error.message);
+};
+$("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
 
-  if(!document.querySelector('#miniShot')){
-    const mini = document.createElement('div');
-    mini.id='miniShot';
-    Object.assign(mini.style,{
-      position:'absolute', left:'10px', bottom:'74px', width:'66px', height:'66px',
-      border:'1px solid rgba(255,255,255,.25)', borderRadius:'10px', overflow:'hidden',
-      background:'#111', display:'none', zIndex:'120'
-    });
-    const img=document.createElement('img');
-    Object.assign(img.style,{ width:'100%', height:'100%', objectFit:'cover' });
+// ===== 图片模式切换 =====
+$("#modeSeg").addEventListener("click", (e)=>{
+  const btn = e.target.closest("button"); if(!btn) return;
+  [...$("#modeSeg").children].forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active"); imageMode = btn.dataset.mode;
+  log.querySelectorAll(".row").forEach(row=>{
+    const mine = row.classList.contains("self");
+    const hasImg = !!row.querySelector("img");
+    applyBubbleSize(row, mine, hasImg);
+  });
+});
+
+// ===== 大图查看 + 左右滑 =====
+function openViewerByUrl(url){
+  galleryIdx = gallery.findIndex(x=>x.url===url);
+  if (galleryIdx < 0) galleryIdx = 0;
+  viewerImg.src = gallery[galleryIdx].url;
+  viewer.classList.add("show");
+}
+function move(step){
+  if (!gallery.length) return;
+  galleryIdx = (galleryIdx + step + gallery.length) % gallery.length;
+  viewerImg.src = gallery[galleryIdx].url;
+}
+viewer.addEventListener("click", ()=> viewer.classList.remove("show"));
+prevBtn.addEventListener("click", e=>{ e.stopPropagation(); move(-1); });
+nextBtn.addEventListener("click", e=>{ e.stopPropagation(); move(1); });
+
+// 触摸滑动
+let tX = 0, tY = 0;
+viewer.addEventListener("touchstart", e=>{ const t = e.touches[0]; tX=t.clientX; tY=t.clientY; }, {passive:true});
+viewer.addEventListener("touchend", e=>{
+  const t = e.changedTouches[0];
+  const dx = t.clientX - tX, dy = t.clientY - tY;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) move(dx<0?1:-1);
+}, {passive:true});
+
+// ===== 启动 =====
+await loadHistory();
+subRealtime();
+
+// ===== 兼容提示：若没开 Realtime，会自动给出提醒 =====
+setTimeout(async ()=>{
+  // 简单探测：发一条“心跳”再删（只有自己看得到），用来触发错误提示
+  const { error } = await supabase.from("messages").insert({
+    room_id: ROOM_ID, author_id: myId, type:"text", content:""
+  }).select().single();
+  if (!error) {
+    await supabase.from("messages").delete().eq("content","").eq("author_id", myId);
+  }
+}, 3000);    Object.assign(img.style,{ width:'100%', height:'100%', objectFit:'cover' });
     mini.appendChild(img); pane.appendChild(mini);
   }
 

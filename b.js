@@ -1,120 +1,142 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET } from "./sb-config.js";
 
-const ROOM = "1010";                 // 固定房间
+/* ====== 基本配置 ====== */
+const ROOM_ID = "1010";
+const ROLE = "B";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+/* ====== DOM ====== */
 const $ = s => document.querySelector(s);
-const log = $("#log"), viewer=$("#viewer"), vImg=$("#viewer img");
-const toast = (t)=>{ const el=$("#toast"); el.textContent=t; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1200); };
+const log = $("#log");
+const viewer = $("#viewer");
+const viewerImg = $("#viewer img");
 
-const myId = (()=>{ const k="client_id_web_b"; let v=localStorage.getItem(k); if(!v){v=crypto.randomUUID();localStorage.setItem(k,v);} return v;})();
+/* ====== 身份 ====== */
+const myId = (() => {
+  const k = "client_id";
+  let v = localStorage.getItem(k);
+  if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v); }
+  return v;
+})();
 
-let imageMode = "only-peer";
-function needTimeDivider(last, cur){ return cur-last>5*60*1000; }
-let lastT = 0;
-
-function addTimeDivider(createdAt){
-  const d=document.createElement("div");
-  d.style.cssText="align-self:center;color:#7f8a98;font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;opacity:.9;margin:6px 0 2px";
-  d.textContent = new Date(createdAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"});
-  log.appendChild(d);
-}
-
-function render(m, history=false){
-  const t = new Date(m.created_at||Date.now()).getTime();
-  if(needTimeDivider(lastT,t)) addTimeDivider(m.created_at||new Date().toISOString());
-  lastT = t;
-
+/* ====== 渲染 ====== */
+function addRow(m){
   const row = document.createElement("div");
-  row.className = "row " + (m.author_id===myId? "self":"peer");
-
-  const bubble = document.createElement("div");
-  bubble.className = "msg";
-
-  if(m.type==="image"){
-    const a=document.createElement("a"); a.href=m.content; a.onclick=e=>{e.preventDefault(); vImg.src=a.href; viewer.style.display='flex';};
-    const img=document.createElement("img"); img.src=m.content; a.appendChild(img);
-    const mine = (m.author_id===myId);
-    const large = imageMode==="all-large" || (imageMode==="only-peer" && !mine);
-    if(large) bubble.classList.add("enlarge");
-    bubble.appendChild(a);
+  row.className = "row " + (m.author_id===myId?"self":"peer");
+  const bubble = document.createElement("div"); bubble.className = "msg";
+  if (m.type==="image"){
+    const a = document.createElement("a");
+    a.href = m.content;
+    a.onclick = e=>{ e.preventDefault(); viewerImg.src = a.href; viewer.classList.add("show"); };
+    const img = document.createElement("img"); img.src = m.content; a.appendChild(img);
+    bubble.classList.add("enlarge"); bubble.appendChild(a);
   }else{
-    const p=document.createElement("p"); p.textContent=m.content; bubble.appendChild(p);
+    const p = document.createElement("p"); p.textContent = m.content; bubble.appendChild(p);
   }
-  row.appendChild(bubble); log.appendChild(row);
-  if(!history) log.scrollTop=log.scrollHeight;
+  row.appendChild(bubble); log.appendChild(row); log.scrollTop = log.scrollHeight;
 }
 
+/* ====== 历史 + 实时 ====== */
 async function loadHistory(){
-  const { data, error } = await supabase.from("messages")
-    .select("*").eq("room_id", ROOM)
-    .order("created_at",{ascending:true}).limit(500);
-  if(error){ alert(error.message); return; }
-  log.innerHTML=""; lastT=0; data.forEach(m=>render(m,true));
+  const { data, error } = await supabase.from("messages").select("*")
+    .eq("room_id", ROOM_ID).order("created_at",{ascending:true}).limit(500);
+  if (error){ alert(error.message); return; }
+  log.innerHTML = ""; data.forEach(addRow);
 }
 function subRealtime(){
-  supabase.channel("room:"+ROOM)
-    .on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`room_id=eq.${ROOM}`}, (payload)=> render(payload.new))
+  supabase.channel("room:"+ROOM_ID)
+    .on("postgres_changes",{event:"INSERT", schema:"public", table:"messages", filter:`room_id=eq.${ROOM_ID}`},
+      payload => addRow(payload.new))
     .subscribe();
 }
-loadHistory(); subRealtime();
+await loadHistory(); subRealtime();
+viewer.addEventListener("click", ()=> viewer.classList.remove("show"));
 
-/* 发送文字 */
-$("#send").onclick = async ()=>{
-  const v=$("#text").value.trim(); if(!v) return;
-  $("#text").value="";
-  const { error } = await supabase.from("messages").insert({ room_id:ROOM, author_id:myId, type:"text", content:v });
-  if(error) alert(error.message);
-};
-$("#text").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#send").click(); });
-
-/* 图片模式切换 */
-document.querySelector(".seg").addEventListener("click", e=>{
-  const btn=e.target.closest("button"); if(!btn) return;
-  imageMode = btn.dataset.mode;
-  document.querySelectorAll(".msg").forEach(b=>b.classList.remove("enlarge"));
-  document.querySelectorAll(".row").forEach(row=>{
-    const mine=row.classList.contains("self"); const has=row.querySelector("img");
-    if(!has) return;
-    const large = imageMode==="all-large" || (imageMode==="only-peer" && !mine);
-    if(large) row.querySelector(".msg").classList.add("enlarge");
+/* ====== 上传（通用） ====== */
+async function uploadBlobToSupabase(blob){
+  const path = `${ROOM_ID}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
+    contentType:"image/jpeg", upsert:false
   });
+  if (error) throw error;
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const url = data.publicUrl;
+  const { error: e2 } = await supabase.from("messages").insert({
+    room_id: ROOM_ID, author_id: myId, type: "image", content: url
+  });
+  if (e2) throw e2;
+  return url;
+}
+
+/* ====== 相册上传按钮 ====== */
+$("#pickBtn").addEventListener("click", ()=>{
+  const input = document.createElement("input");
+  input.type="file"; input.accept="image/*";
+  input.onchange = async ()=>{
+    const f = input.files[0]; if(!f) return;
+    try{ await uploadBlobToSupabase(f); }catch(e){ alert(e.message); }
+  };
+  input.click();
 });
 
-/* 相册上传 */
-$("#pick").onclick = ()=> $("#file").click();
-$("#file").onchange = async ()=>{
-  const f=$("#file").files[0]; if(!f) return;
-  const path=`${ROOM}/${Date.now()}-${f.name}`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert:false });
-  if(error) return alert(error.message);
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  await supabase.from("messages").insert({ room_id:ROOM, author_id:myId, type:"image", content:data.publicUrl });
-};
+/* ====== 相机：打开/关闭/切换/拍照 ====== */
+let stream = null;
+let usingFacing = "environment"; // 默认后置
+const camPane = $("#camPane");
+const camView = $("#camView");
+const lastThumb = $("#lastThumb");
 
-/* 摄像头拍照上传（默认后置，iOS 旧机型可能只支持前置） */
-let stream=null;
-$("#openCam").onclick = async ()=>{
+async function getStream(facing) {
+  const strict = { video: { facingMode: { exact: facing } }, audio:false };
+  const loose  = { video: { facingMode: facing }, audio:false };
+  try { return await navigator.mediaDevices.getUserMedia(strict); }
+  catch { return await navigator.mediaDevices.getUserMedia(loose); }
+}
+async function openCam(){
   try{
-    stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:"environment" } }, audio:false });
-    $("#cam").srcObject=stream; await $("#cam").play(); toast("相机已开启");
-  }catch(e){ alert("相机失败："+e.message); }
-};
-$("#closeCam").onclick = ()=>{ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; toast("相机已关闭"); } };
-$("#shot").onclick = async ()=>{
-  if(!stream) return alert("请先打开相机");
-  const video=$("#cam"); const c=document.createElement("canvas");
-  c.width = video.videoWidth||1280; c.height = video.videoHeight||720;
-  c.getContext("2d").drawImage(video,0,0,c.width,c.height);
-  const blob = await new Promise(r=>c.toBlob(r,"image/jpeg",0.9));
-  const path=`${ROOM}/${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType:"image/jpeg", upsert:false });
-  if(error) return alert(error.message);
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  await supabase.from("messages").insert({ room_id:ROOM, author_id:myId, type:"image", content:data.publicUrl });
-  toast("已拍照并发送");
-};
+    camPane.style.display = "block";
+    if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    stream = await getStream(usingFacing);
+    camView.srcObject = stream;
+    await camView.play();
+    camView.style.transform = (usingFacing==="user")? "scaleX(-1)" : "none";
+  }catch(e){
+    camPane.style.display = "none";
+    alert("相机打开失败："+e.message);
+  }
+}
+function closeCam(){
+  if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  camView.srcObject = null; camPane.style.display="none";
+}
+async function flipCam(){
+  usingFacing = (usingFacing==="environment")? "user":"environment";
+  await openCam();
+}
+async function shootAndUpload(){
+  if (!stream || !camView.videoWidth){ alert("相机未就绪"); return; }
+  const w = camView.videoWidth, h = camView.videoHeight;
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  const ctx=c.getContext("2d");
+  if(usingFacing==="user"){ ctx.translate(w,0); ctx.scale(-1,1); }
+  ctx.drawImage(camView,0,0,w,h);
+  const blob = await new Promise(r=> c.toBlob(r,"image/jpeg",0.92));
+  try{
+    await uploadBlobToSupabase(blob);
+    lastThumb.src = URL.createObjectURL(blob);
+    lastThumb.style.display = "block";
+    setTimeout(()=> lastThumb.style.display="none", 3000);
+  }catch(e){ alert("上传失败："+e.message); }
+}
 
-/* 预览关闭 */
-viewer.addEventListener("click", ()=> viewer.style.display='none');
+$("#openCamBtn").addEventListener("click", openCam);
+$("#closeCamBtn").addEventListener("click", closeCam);
+$("#flipBtn").addEventListener("click", flipCam);
+$("#shootBtn").addEventListener("click", shootAndUpload);
+
+/* ====== 列表点击大图预览 ====== */
+log.addEventListener("click", e=>{
+  const a = e.target.closest(".msg a"); if(!a) return;
+  e.preventDefault(); viewerImg.src = a.href; viewer.classList.add("show");
+});

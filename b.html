@@ -1,60 +1,59 @@
 <!doctype html>
 <html lang="zh-CN">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>聊天（B 端） · 房间 1010</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>CameraChat · B端</title>
 <link rel="icon" href="data:,">
 <style>
-  :root{--bg:#0f1115;--panel:#12151c;--text:#e9edf1;--sub:#97a1ad;--line:#1e2430;--brand:#6b8afd;--mine:#1b2431;--peer:#151b24;--r:14px;--gap:10px;--max:72vw}
-  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,Roboto,"PingFang SC","Noto Sans SC",sans-serif}
-  .top{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 12px;z-index:9}
-  .seg{display:flex;gap:8px}
-  .seg button{background:#0c0f14;color:#dbe3ff;border:1px solid var(--line);border-radius:999px;padding:6px 10px}
-  #log{height:calc(100vh - 172px);overflow:auto;display:flex;flex-direction:column;gap:8px;padding:10px 8px}
-  .row{display:flex}.peer{justify-content:flex-start}.self{justify-content:flex-end}
-  .msg{max-width:var(--max);background:var(--peer);border:1px solid var(--line);padding:8px 10px;border-radius:12px}
-  .self .msg{background:var(--mine)}
-  .msg img{width:44vw;height:auto;border-radius:10px;border:1px solid var(--line)}
+  :root{--bg:#0f1115;--panel:#12151c;--line:#1e2430;--text:#e9edf1;--sub:#97a1ad;--brand:#6b8afd;--safe:env(safe-area-inset-bottom)}
+  html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Noto Sans SC",sans-serif}
+  .wrap{height:100%;display:flex;flex-direction:column}
+  .top{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#0c0f14,var(--panel));border-bottom:1px solid var(--line);padding:8px 12px}
+  .seg{display:flex;gap:6px}
+  .seg button{background:#0d1016;border:1px solid var(--line);color:var(--text);padding:8px 12px;border-radius:999px}
+  #log{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+  .row{display:flex}.row.peer{justify-content:flex-start}.row.self{justify-content:flex-end}
+  .msg{max-width:72vw;background:#151b24;border:1px solid var(--line);padding:8px 10px;border-radius:12px}
+  .self .msg{background:#1b2431}
+  .msg p{margin:0;white-space:pre-wrap;word-break:break-word}
+  .msg img{display:block;width:44vw;height:auto;border-radius:10px;border:1px solid var(--line)}
   .msg.enlarge img{width:min(84vw,520px)}
-  .foot{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:8px 12px}
-  .tool{display:flex;gap:8px;margin-bottom:8px}
-  .tool button{border:1px solid var(--line);background:#0e1118;color:#fff;border-radius:999px;height:36px;padding:0 14px}
-  .comp{display:flex;gap:8px}
-  .comp input{flex:1;height:40px;border-radius:12px;border:1px solid var(--line);background:#0b0e14;color:#fff;padding:0 10px}
-  .comp button{height:40px;border-radius:999px;background:var(--brand);color:#fff;border:0;padding:0 16px}
-  .toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#11161e;border:1px solid var(--line);padding:8px 12px;border-radius:10px;opacity:0;transition:.2s}
-  .toast.show{opacity:1}
-  .viewer{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:99}
-  .viewer.show{display:flex}.viewer img{max-width:100vw;max-height:100vh}
+  .viewer{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:999}
+  .viewer img{max-width:100vw;max-height:100vh}.viewer.show{display:flex}
+
+  /* 相机面板 */
+  #camPane{position:fixed;inset:0;background:#000;display:none;z-index:1000}
+  #camView{display:block;width:100%;height:50vh;max-height:60vh;background:#000;object-fit:cover}
+  .camBar{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + var(--safe));display:flex;gap:10px;justify-content:center;background:linear-gradient(180deg,transparent,rgba(0,0,0,.6))}
+  .btn{height:44px;border-radius:999px;border:0;padding:0 16px;font-weight:700}
+  .btn.p{background:#1c2432;color:#fff;border:1px solid #2a3548}
+  .btn.d{background:#5a1d1d;color:#fff;border:1px solid #7a3030}
+  #lastThumb{position:absolute;left:12px;bottom:76px;width:72px;height:72px;border:1px solid rgba(255,255,255,.3);border-radius:10px;object-fit:cover;display:none}
 </style>
-<div class="top">
-  <div style="color:#9fb1ff;margin-bottom:6px">当前房间：<b>1010</b>（B 端）</div>
-  <div class="seg">
-    <button data-mode="only-peer" class="active">只放大对方</button>
-    <button data-mode="all-small">全部缩略</button>
-    <button data-mode="all-large">全部放大</button>
+
+<div class="wrap">
+  <div class="top">
+    <div class="seg">
+      <button id="openCamBtn" class="segbtn">打开相机</button>
+      <button id="pickBtn" class="segbtn">相册上传</button>
+    </div>
   </div>
+
+  <div id="log"></div>
+
+  <div id="viewer" class="viewer"><img alt=""></div>
 </div>
 
-<div id="log"></div>
-
-<div class="viewer" id="viewer"><img alt=""></div>
-<div class="toast" id="toast"></div>
-
-<div class="foot">
-  <div class="tool">
-    <button id="openCam">相机</button>
-    <button id="shot">拍照上传</button>
-    <button id="closeCam">关闭相机</button>
-    <input id="file" type="file" accept="image/*" hidden>
-    <button id="pick">从相册上传</button>
+<!-- 相机面板 -->
+<section id="camPane">
+  <video id="camView" playsinline muted autoplay></video>
+  <img id="lastThumb" alt="">
+  <div class="camBar">
+    <button id="shootBtn" class="btn p">拍照并上传</button>
+    <button id="flipBtn"  class="btn p">前/后切换</button>
+    <button id="closeCamBtn" class="btn d">关闭</button>
   </div>
-  <div class="comp">
-    <input id="text" placeholder="发消息…（回车发送）">
-    <button id="send">发送</button>
-  </div>
-</div>
+</section>
 
-<video id="cam" playsinline muted style="display:none"></video>
 <script type="module" src="b.js"></script>
 </html>

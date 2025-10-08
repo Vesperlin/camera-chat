@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>监看（C 端） · 房间 1010</title>
+<link rel="icon" href="data:,">
+<style>
+  body{margin:0;background:#0f1115;color:#e9edf1;font:15px/1.5 -apple-system,BlinkMacSystemFont,Roboto,"PingFang SC","Noto Sans SC",sans-serif}
+  .top{position:sticky;top:0;background:#12151c;border-bottom:1px solid #1e2430;padding:10px 12px}
+  #log{height:calc(100vh - 54px);overflow:auto;display:flex;flex-direction:column;gap:8px;padding:10px 8px}
+  .row{display:flex}.peer{justify-content:flex-start}.self{justify-content:flex-end}
+  .msg{max-width:72vw;background:#151b24;border:1px solid #1e2430;padding:8px 10px;border-radius:12px}
+  .msg img{width:min(84vw,520px);height:auto;border-radius:10px;border:1px solid #1e2430}
+  .viewer{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center}
+  .viewer.show{display:flex}.viewer img{max-width:100vw;max-height:100vh}
+</style>
+<div class="top">当前房间：<b>1010</b>（C 端只看）</div>
+<div id="log"></div>
+<div class="viewer" id="viewer"><img alt=""></div>
+<script type="module" src="c.js"></script>
+</html>

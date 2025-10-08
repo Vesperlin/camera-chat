@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>1v多 · 相机上传 + 聊天（B/C 端）</title>
+<title>1v多 · 相机上传 + 聊天（A/B/C 通用）</title>
 <link rel="preconnect" href="https://esm.sh">
 <style>
   :root{
@@ -64,7 +64,11 @@
 
   <div class="footer">
     <div class="composer">
-      <input id="text" placeholder="发消息…（回车发送）">
+      <button id="btnCamera">相机</button>
+      <button id="btnPhoto">图片</button>
+      <input id="filePicker" type="file" accept="image/*" hidden>
+      <input id="fileCamera" type="file" accept="image/*" capture="environment" hidden>
+      <input id="text" placeholder="发消息…（回车发送）" style="flex:1">
       <button id="send">发送</button>
     </div>
   </div>

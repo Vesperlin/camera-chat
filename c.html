@@ -1,22 +1,73 @@
-<!doctype html>
-<html lang="zh-CN">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>CameraChat · C端（只读）</title>
-<link rel="icon" href="data:,">
-<style>
-  :root{--bg:#0f1115;--panel:#12151c;--line:#1e2430;--text:#e9edf1}
-  html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Noto Sans SC",sans-serif}
-  #log{height:100%;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
-  .row{display:flex}.row.peer{justify-content:flex-start}.row.self{justify-content:flex-end}
-  .msg{max-width:84vw;background:#151b24;border:1px solid var(--line);padding:8px 10px;border-radius:12px}
-  .self .msg{background:#1b2431}
-  .msg p{margin:0}
-  .msg img{display:block;width:min(84vw,520px);height:auto;border-radius:10px;border:1px solid var(--line)}
-  .viewer{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:999}
-  .viewer img{max-width:100vw;max-height:100vh}.viewer.show{display:flex}
-</style>
-<div id="log"></div>
-<div id="viewer" class="viewer"><img alt=""></div>
-<script type="module" src="c.js"></script>
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CameraChat · C 监听端</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h2>C 监听端（房间 1010）</h2>
+
+    <div class="row">
+      <input id="text" type="text" placeholder="此端仅监听，禁止发言" disabled style="flex:1">
+      <button id="send" class="btn" disabled>发送</button>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button class="btn" disabled>打开摄像头</button>
+      <button class="btn" disabled>拍照上传</button>
+      <button class="btn ghost" disabled>从相册选择</button>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+    import { SUPABASE_URL, SUPABASE_ANON_KEY, FIXED_ROOM_ID, AUTHOR_C } from "./sb-config.js";
+    const sp = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const roomId = FIXED_ROOM_ID;
+    const myId = AUTHOR_C;
+
+    const $=s=>document.querySelector(s);
+    const toast=(t)=>{ const el=$("#toast"); el.textContent=t; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); };
+    const log=$("#log");
+
+    function render(list){
+      log.innerHTML="";
+      list.forEach(m=>{
+        const row=document.createElement("div");
+        row.className="msgRow "+(m.author_id===myId?"self":"");
+        const b=document.createElement("div"); b.className="bubble";
+        if(m.type==="image"){
+          const a=document.createElement("a"); a.href=m.content; a.textContent="图片"; a.target="_blank";
+          b.appendChild(a);
+        }else{
+          const p=document.createElement("p"); p.textContent=m.content; b.appendChild(p);
+        }
+        row.appendChild(b); log.appendChild(row);
+      });
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function load(){
+      const { data, error } = await sp.from("messages")
+        .select("*").eq("room_id", roomId).order("created_at",{ascending:true}).limit(500);
+      if(error){ toast("加载失败："+error.message); return; }
+      render(data||[]);
+    }
+
+    sp.channel("room-"+roomId)
+      .on("postgres_changes",
+        { event:"*", schema:"public", table:"messages", filter:`room_id=eq.${roomId}`},
+        ()=> load())
+      .subscribe();
+
+    load();
+  </script>
+</body>
 </html>

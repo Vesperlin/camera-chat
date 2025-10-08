@@ -1,59 +1,146 @@
-<!doctype html>
-<html lang="zh-CN">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>CameraChat · B端</title>
-<link rel="icon" href="data:,">
-<style>
-  :root{--bg:#0f1115;--panel:#12151c;--line:#1e2430;--text:#e9edf1;--sub:#97a1ad;--brand:#6b8afd;--safe:env(safe-area-inset-bottom)}
-  html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Noto Sans SC",sans-serif}
-  .wrap{height:100%;display:flex;flex-direction:column}
-  .top{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#0c0f14,var(--panel));border-bottom:1px solid var(--line);padding:8px 12px}
-  .seg{display:flex;gap:6px}
-  .seg button{background:#0d1016;border:1px solid var(--line);color:var(--text);padding:8px 12px;border-radius:999px}
-  #log{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
-  .row{display:flex}.row.peer{justify-content:flex-start}.row.self{justify-content:flex-end}
-  .msg{max-width:72vw;background:#151b24;border:1px solid var(--line);padding:8px 10px;border-radius:12px}
-  .self .msg{background:#1b2431}
-  .msg p{margin:0;white-space:pre-wrap;word-break:break-word}
-  .msg img{display:block;width:44vw;height:auto;border-radius:10px;border:1px solid var(--line)}
-  .msg.enlarge img{width:min(84vw,520px)}
-  .viewer{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:999}
-  .viewer img{max-width:100vw;max-height:100vh}.viewer.show{display:flex}
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CameraChat · B 聊天/拍照端</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h2>B 端（房间 1010）</h2>
 
-  /* 相机面板 */
-  #camPane{position:fixed;inset:0;background:#000;display:none;z-index:1000}
-  #camView{display:block;width:100%;height:50vh;max-height:60vh;background:#000;object-fit:cover}
-  .camBar{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + var(--safe));display:flex;gap:10px;justify-content:center;background:linear-gradient(180deg,transparent,rgba(0,0,0,.6))}
-  .btn{height:44px;border-radius:999px;border:0;padding:0 16px;font-weight:700}
-  .btn.p{background:#1c2432;color:#fff;border:1px solid #2a3548}
-  .btn.d{background:#5a1d1d;color:#fff;border:1px solid #7a3030}
-  #lastThumb{position:absolute;left:12px;bottom:76px;width:72px;height:72px;border:1px solid rgba(255,255,255,.3);border-radius:10px;object-fit:cover;display:none}
-</style>
+    <div class="row">
+      <input id="text" type="text" placeholder="输入文本（回车发送）" style="flex:1">
+      <button id="send" class="btn primary">发送</button>
+    </div>
 
-<div class="wrap">
-  <div class="top">
-    <div class="seg">
-      <button id="openCamBtn" class="segbtn">打开相机</button>
-      <button id="pickBtn" class="segbtn">相册上传</button>
+    <div class="row" style="margin-top:10px">
+      <button id="openCam" class="btn">打开摄像头</button>
+      <button id="shotUpload" class="btn">拍照上传</button>
+      <input id="pick" type="file" accept="image/*" capture="environment" class="btn ghost" style="padding:6px">
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="small-thumb" id="thumb"><img></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="videoPane" id="videoPane">
+    <video id="cam" autoplay playsinline muted></video>
+    <div class="camTop">
+      <button id="closeCam" class="btn ghost">关闭相机</button>
+    </div>
+    <div class="camBottom">
+      <button id="flip" class="btn ghost">前/后置</button>
+      <button id="rotate" class="btn ghost">旋转90°</button>
+      <button id="shoot" class="btn">拍照上传</button>
     </div>
   </div>
 
-  <div id="log"></div>
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+    import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET, FIXED_ROOM_ID, AUTHOR_B } from "./sb-config.js";
+    const sp = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  <div id="viewer" class="viewer"><img alt=""></div>
-</div>
+    const $ = s=>document.querySelector(s);
+    const toast=(t)=>{ const el=$("#toast"); el.textContent=t; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); };
 
-<!-- 相机面板 -->
-<section id="camPane">
-  <video id="camView" playsinline muted autoplay></video>
-  <img id="lastThumb" alt="">
-  <div class="camBar">
-    <button id="shootBtn" class="btn p">拍照并上传</button>
-    <button id="flipBtn"  class="btn p">前/后切换</button>
-    <button id="closeCamBtn" class="btn d">关闭</button>
-  </div>
-</section>
+    const roomId = FIXED_ROOM_ID;
+    const myId = AUTHOR_B; // B
 
-<script type="module" src="b.js"></script>
+    // --- chat ---
+    const text = $("#text"), send = $("#send"), log=$("#log");
+    send.onclick = sendText;
+    text.addEventListener("keydown", e=>{ if(e.key==="Enter") sendText(); });
+    async function sendText(){
+      const v = text.value.trim(); if(!v) return;
+      const { error } = await sp.from("messages").insert({ room_id: roomId, author_id: myId, type:"text", content: v });
+      if(error) toast("发送失败："+error.message); else text.value="";
+    }
+
+    // --- album upload ---
+    const fileInput = $("#pick"); const thumb=$("#thumb img");
+    fileInput.onchange = async e=>{
+      const f = e.target.files[0]; if(!f) return;
+      const name = `${Date.now()}_${f.name||"photo.jpg"}`, path = `${roomId}/${name}`;
+      const up = await sp.storage.from(BUCKET).upload(path, f);
+      if(up.error){ toast("上传失败："+up.error.message); return; }
+      const url = sp.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+      thumb.src = url;
+      await sp.from("messages").insert({ room_id: roomId, author_id: myId, type:"image", content: url });
+      toast("图片已上传");
+      fileInput.value="";
+    };
+
+    // --- camera ---
+    let stream=null, usingBack=true, rotation=0;
+    const pane=$("#videoPane"), cam=$("#cam");
+    async function openCam(){
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: usingBack?"environment":"user" }, audio:false });
+      }catch(e){ return toast("相机失败："+e.message); }
+      cam.srcObject = stream; await cam.play(); pane.classList.add("show");
+    }
+    function closeCam(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } pane.classList.remove("show"); }
+    async function shoot(){
+      if(!stream) return toast("先打开相机");
+      const c=document.createElement("canvas"); const w = cam.videoWidth||1280, h=cam.videoHeight||720;
+      if(rotation%180===0){ c.width=w; c.height=h; } else { c.width=h; c.height=w; }
+      const ctx=c.getContext("2d");
+      ctx.save();
+      if(rotation%360===90){ ctx.translate(c.width,0); ctx.rotate(Math.PI/2); }
+      else if(rotation%360===180){ ctx.translate(c.width,c.height); ctx.rotate(Math.PI); }
+      else if(rotation%360===270){ ctx.translate(0,c.height); ctx.rotate(3*Math.PI/2); }
+      ctx.drawImage(cam, 0,0,w,h); ctx.restore();
+
+      const blob = await new Promise(r=>c.toBlob(r,"image/jpeg",0.92));
+      const name=`shot_${Date.now()}.jpg`, path=`${roomId}/${name}`;
+      const up = await sp.storage.from(BUCKET).upload(path, blob);
+      if(up.error){ toast("上传失败："+up.error.message); return; }
+      const url = sp.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+      thumb.src = url;
+      await sp.from("messages").insert({ room_id: roomId, author_id: myId, type:"image", content:url });
+      toast("拍照已上传");
+    }
+    $("#openCam").onclick = openCam;
+    $("#closeCam").onclick = closeCam;
+    $("#shoot").onclick = shoot;
+    $("#shotUpload").onclick = shoot; // 顶部按钮也触发（如果相机已开）
+    $("#flip").onclick = ()=>{ usingBack=!usingBack; closeCam(); openCam(); };
+    $("#rotate").onclick = ()=>{ rotation=(rotation+90)%360; cam.style.transform=`rotate(${rotation}deg)`; };
+
+    // --- render + realtime ---
+    function render(list){
+      log.innerHTML="";
+      list.forEach(m=>{
+        const row=document.createElement("div");
+        row.className="msgRow "+(m.author_id===myId?"self":"");
+        const bubble=document.createElement("div"); bubble.className="bubble";
+        if(m.type==="image"){
+          const a=document.createElement("a"); a.href=m.content; a.textContent="图片"; a.target="_blank";
+          bubble.appendChild(a);
+        }else{
+          const p=document.createElement("p"); p.textContent=m.content; bubble.appendChild(p);
+        }
+        row.appendChild(bubble); log.appendChild(row);
+      });
+      log.scrollTop = log.scrollHeight;
+    }
+    async function load(){
+      const { data, error } = await sp.from("messages")
+        .select("*").eq("room_id", roomId).order("created_at",{ascending:true}).limit(500);
+      if(error){ toast("加载失败："+error.message); return; }
+      render(data||[]);
+    }
+    sp.channel("room-"+roomId)
+      .on("postgres_changes",
+          { event:"*", schema:"public", table:"messages", filter:`room_id=eq.${roomId}`},
+          () => load())
+      .subscribe();
+
+    load();
+  </script>
+</body>
 </html>

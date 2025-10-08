@@ -1,85 +1,109 @@
-<!doctype html>
-<html lang="zh-CN">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>1v多 · 相机上传 + 聊天（A/B/C 通用）</title>
-<link rel="preconnect" href="https://esm.sh">
-<style>
-  :root{
-    --bg:#0f1115;--panel:#12151c;--panel2:#0d0f14;--text:#e9edf1;--sub:#97a1ad;--line:#1e2430;
-    --brand:#6b8afd;--brand-weak:#2b3350;--mine:#1b2431;--peer:#151b24;--danger:#742a2a;
-    --r:14px;--gap:10px;--safe:env(safe-area-inset-bottom);
-    --max:72vw;--imgS:44vw;--imgL:84vw;
-  }
-  *{box-sizing:border-box} html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--text);
-       font:15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Noto Sans SC",sans-serif}
-  .wrap{height:100%;display:flex;flex-direction:column}
-
-  .top{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,var(--panel2),var(--panel));
-       border-bottom:1px solid var(--line);padding:8px 12px}
-  .row-top{display:flex;justify-content:space-between;align-items:center}
-  .badge{font-weight:700;color:#dbe3ff;background:var(--brand-weak);border:1px solid #2f3b5c;border-radius:999px;padding:6px 10px}
-  .seg{display:flex;gap:6px;background:#0c0f14;border:1px solid var(--line);border-radius:999px;padding:4px;margin-top:8px}
-  .seg button{background:transparent;border:0;color:var(--sub);padding:6px 10px;border-radius:999px}
-  .seg button.active{background:var(--brand-weak);color:#dbe3ff}
-
-  #log{flex:1;overflow:auto;padding:10px 8px;background:radial-gradient(1100px 700px at 50% -220px,#0b0e14,transparent),var(--bg);
-       display:flex;flex-direction:column;gap:8px}
-  .time{align-self:center;color:#7f8a98;font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;opacity:.9;margin:6px 0 2px}
-  .row{display:flex;gap:8px}
-  .row.peer{justify-content:flex-start}.row.self{justify-content:flex-end}
-  .msg{max-width:var(--max);background:var(--peer);border:1px solid var(--line);padding:8px 10px;border-radius:12px;box-shadow:0 3px 10px rgba(0,0,0,.18)}
-  .self .msg{background:var(--mine)}
-  .msg p{margin:0;white-space:pre-wrap;word-break:break-word;color:var(--text)}
-  .msg img{display:block;width:var(--imgS);height:auto;border-radius:10px;border:1px solid var(--line)}
-  .msg.enlarge img{width:min(var(--imgL),520px)}
-  .footer{position:sticky;bottom:0;z-index:10;background:linear-gradient(180deg,transparent,rgba(0,0,0,.35))}
-  .composer{display:flex;gap:8px;align-items:center;padding:8px 12px calc(8px + var(--safe));background:var(--panel);border-top:1px solid var(--line)}
-  #text{flex:1;background:#0c0f14;border:1px solid var(--line);color:var(--text);border-radius:12px;height:40px;padding:0 12px}
-  #send{background:var(--brand);color:#fff;border:0;border-radius:999px;height:40px;padding:0 16px;font-weight:700}
-
-  /* 大图查看器 + 左右滑动 */
-  .viewer{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:999}
-  .viewer.show{display:flex}
-  .viewer img{max-width:100vw;max-height:100vh;user-select:none}
-  .nav{position:fixed;top:50%;width:100%;display:flex;justify-content:space-between;pointer-events:none}
-  .nav b{pointer-events:auto;user-select:none;background:rgba(255,255,255,.08);border:1px solid #2a2f3a;border-radius:10px;padding:10px 14px;color:#dfe7ff}
-  .hint{position:fixed;left:50%;bottom:calc(14px + var(--safe));transform:translateX(-50%);color:#98a3b3;background:#11161e;border:1px solid var(--line);border-radius:10px;padding:6px 10px}
-</style>
-
-<div class="wrap">
-  <div class="top">
-    <div class="row-top">
-      <div class="badge">房间：1010 · 角色：<span id="roleTag">B</span></div>
-      <div class="seg" id="modeSeg">
-        <button data-mode="only-peer" class="active">只放大对方</button>
-        <button data-mode="all-small">全部缩略</button>
-        <button data-mode="all-large">全部放大</button>
-      </div>
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CameraChat 上传端</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h2>CameraChat 上传端</h2>
+    <div class="row">
+      <input id="text" placeholder="发送消息 (回车发送)" style="flex:1">
+      <button id="send" class="btn primary">发送</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="openCamera" class="btn">打开摄像头</button>
+      <button id="takeShot" class="btn">拍照上传</button>
+      <input id="file" type="file" accept="image/*" class="btn ghost" style="padding:6px">
     </div>
   </div>
 
-  <div id="log"></div>
+  <div class="viewer" id="viewer"><img></div>
+  <div class="small-thumb" id="thumb"><img></div>
+  <div class="toast" id="toast"></div>
 
-  <div class="footer">
-    <div class="composer">
-      <button id="btnCamera">相机</button>
-      <button id="btnPhoto">图片</button>
-      <input id="filePicker" type="file" accept="image/*" hidden>
-      <input id="fileCamera" type="file" accept="image/*" capture="environment" hidden>
-      <input id="text" placeholder="发消息…（回车发送）" style="flex:1">
-      <button id="send">发送</button>
+  <div id="camPane" class="videoPane">
+    <video id="camView" autoplay playsinline muted></video>
+    <div class="camTop">
+      <button id="closeCam" class="btn ghost">关闭相机</button>
+    </div>
+    <div class="camBottom">
+      <button id="flip" class="btn ghost">前/后置</button>
+      <button id="rotate" class="btn ghost">旋转90°</button>
+      <button id="shootBtn" class="btn">拍照上传</button>
     </div>
   </div>
-</div>
 
-<!-- 大图查看器 -->
-<div id="viewer" class="viewer" aria-hidden="true">
-  <img alt="preview">
-  <div class="nav"><b id="prev">&lt;</b><b id="next">&gt;</b></div>
-  <div class="hint">左右滑动 / 点击箭头切换</div>
-</div>
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+    import { SUPABASE_URL, SUPABASE_ANON_KEY, BUCKET, FIXED_ROOM_ID } from "./sb-config.js";
+    const sp = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-<script type="module" src="chat.js"></script>
+    const $ = s => document.querySelector(s);
+    const toast = t => {
+      const el = $("#toast");
+      el.textContent = t;
+      el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 2000);
+    };
+
+    const roomId = FIXED_ROOM_ID;
+    const fileInput = $("#file");
+    const takeShotBtn = $("#takeShot");
+    const openCameraBtn = $("#openCamera");
+    const camPane = $("#camPane");
+    const camView = $("#camView");
+    const shootBtn = $("#shootBtn");
+
+    // 上传文件
+    fileInput.onchange = async e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const name = `${Date.now()}_${f.name}`;
+      const { data, error } = await sp.storage.from(BUCKET).upload(`${roomId}/${name}`, f);
+      if (error) return toast("上传失败：" + error.message);
+      const url = sp.storage.from(BUCKET).getPublicUrl(`${roomId}/${name}`).data.publicUrl;
+      await sp.from("messages").insert({ room_id: roomId, author_id: "A", type: "image", content: url });
+      toast("已上传");
+    };
+
+    // 摄像头逻辑
+    let stream = null, usingBack = true, rotation = 0;
+    async function openCam() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: usingBack ? "environment" : "user" }, audio: false
+        });
+      } catch (e) { return toast("相机权限失败：" + e.message); }
+      camView.srcObject = stream;
+      await camView.play();
+      camPane.classList.add("show");
+    }
+    function closeCam() {
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      camPane.classList.remove("show");
+    }
+    async function shootAndUpload() {
+      if (!stream) return toast("请先打开相机");
+      const c = document.createElement("canvas");
+      const w = camView.videoWidth || 1280, h = camView.videoHeight || 720;
+      c.width = w; c.height = h;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(camView, 0, 0, w, h);
+      const blob = await new Promise(r => c.toBlob(r, "image/jpeg"));
+      const name = `shot_${Date.now()}.jpg`;
+      const { error } = await sp.storage.from(BUCKET).upload(`${roomId}/${name}`, blob);
+      if (error) return toast("上传失败：" + error.message);
+      const url = sp.storage.from(BUCKET).getPublicUrl(`${roomId}/${name}`).data.publicUrl;
+      await sp.from("messages").insert({ room_id: roomId, author_id: "A", type: "image", content: url });
+      toast("拍照上传成功");
+    }
+
+    openCameraBtn.onclick = openCam;
+    $("#closeCam").onclick = closeCam;
+    shootBtn.onclick = shootAndUpload;
+  </script>
+</body>
 </html>
